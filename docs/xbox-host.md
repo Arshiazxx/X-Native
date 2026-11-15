@@ -78,26 +78,45 @@ passes nothing, so the platform default applies.
    `Bootstrapper.Start`, caching the report in `App.Startup`. A
    *successful* start is cached for the process lifetime; a failed start
    is not — the next activation retries `Start` instead of reusing the
-   failure. It then creates the root frame if needed and navigates to
-   `MainPage`.
+   failure. It then creates the root frame if needed. Navigation and
+   `Window.Current.Activate()` happen only on a real launch: during
+   prelaunch activation the operating system starts the process ahead of
+   time so the real launch is fast, so `Start` still runs (the
+   composition is ready when the user actually launches) but the page is
+   not navigated to and the window is not surfaced.
 2. `Bootstrapper.Start` registers every module, builds the container with
    `ValidateOnBuild` and `ValidateScopes`, then resolves every
-   `IModuleDescriptor` and the device service so that a wiring mistake
-   fails at startup rather than later. Calling `Start` on an
-   already-started host returns the existing provider as a success.
+   `IModuleDescriptor` and runs the device service's detection
+   (`GetDeviceInfo()`) so that a wiring mistake fails at startup rather
+   than later. Running detection here matters: it is lazy, and the WinRT
+   calls behind it are the one genuinely fallible part of startup — left
+   to itself, detection would first run on the first page, outside the
+   guarded region. Calling `Start` on an already-started host returns the
+   existing provider as a success. `Start` and `Reset` are serialised on
+   a private lock, so the static startup state does not depend on
+   activation staying single-threaded.
 3. `Start` never throws: **any** exception from the build or the startup
    resolutions is caught and returned as `StartupReport.Failed`, so a
    broken registration reaches the startup error screen instead of crashing
-   `App.OnLaunched`.
+   `App.OnLaunched`. If the container was built before the failure, it is
+   disposed before the failure is returned — it is never handed out, so
+   nothing else could dispose it, and a retry would otherwise build a
+   second container beside the leaked one.
 4. `MainPage.OnNavigatedTo` checks the report. If startup failed (or never
    ran), the page shows the failure and stops. Otherwise it resolves
-   `StartupViewModel`, calls `Load`, resolves `GameLibraryViewModel`,
-   starts the gamepad input feed (see below), and updates the bindings.
-   Navigating away stops the feed.
-5. `Bootstrapper.Reset()` disposes the service provider and clears the
-   started state so `Start` can run again. It is test and support tooling
-   only — the running application never calls it, because a UWP host starts
-   exactly once per process.
+   `StartupViewModel` and calls `Load` — guarded: a failure escaping
+   `Load` is shown on the page instead of escaping navigation, where
+   `OnNavigationFailed` would turn it into a process crash. (Detection
+   already ran during startup, so this should be unreachable; it is
+   belt-and-braces.) It then resolves `GameLibraryViewModel`, starts the
+   gamepad input feed (see below), and updates the bindings. Navigating
+   away stops the feed.
+5. `Bootstrapper.Reset()` disposes the service provider, clears the
+   started state so `Start` can run again, and clears the report cached
+   in `App.Startup` — otherwise the app-level cache would keep handing
+   out a success whose provider has been disposed. It is test and support
+   tooling only — the running application never calls it, because a UWP
+   host starts exactly once per process.
 
 The startup screen lists the expected modules in a fixed order and marks each
 one as loaded or missing, so a module that fails to register is visible on the
@@ -115,7 +134,12 @@ an immediate extra poll, so the poll loop stays the single writer. A
 pad's player slot is its position in `Gamepad.Gamepads`, capped at
 `InputConstants.MaxPlayers` (4); slots with no pad are written
 `GamepadState.Disconnected` on every poll, so a removed pad never leaves
-a stale "connected" snapshot behind.
+a stale "connected" snapshot behind. The whole poll body — taking the
+`Gamepad.Gamepads` snapshot included — runs inside an exception guard: a
+poll executes unattended on a timer tick, where an escaping exception
+would be an unhandled-exception process crash in UWP, so a fault costs
+one missed poll (the next tick retries against a fresh snapshot) and the
+slots keep their last written states.
 
 Two mapping losses are deliberate and documented in the feed's own
 remarks: the UWP `Paddle1`–`Paddle4` buttons have no counterpart in the
@@ -132,12 +156,19 @@ under Capabilities).
 
 ## Launching from the main page
 
-The games list is a selectable `ListView` bound to the game library. The
+The games list is a selectable `ListView` bound to the game library view
+model's `VisibleGames` — its filtered/sorted projection, not the raw
+catalog result — with the selection held by the view model
+(`SelectedGame`, bound two-way), so the view model's selection
+preservation across rescans applies to this list too. The
 **Launch Selected Game** button takes the selected game, looks its
 `GameInfo` up in `IGameCatalog` by executable path, and calls
 `IGameRunner.LaunchAsync` — passing the game's manifest launch arguments
 through `LaunchOptions` when it has any, mirroring the launcher view
-model's launch path instead of silently dropping them. The outcome is shown next to the button;
+model's launch path instead of silently dropping them. The handler also
+mirrors the view model's re-entry guard: a second tap while a launch is
+in flight is ignored, so two launches cannot run concurrently against
+the singleton runner. The outcome is shown next to the button;
 failures and exceptions are also mirrored into the page's error element, so
 the handler cannot crash the page. Today the registered runner runs the
 launch pipeline — validation and profile resolution — but there is no
