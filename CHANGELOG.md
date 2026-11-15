@@ -200,6 +200,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `InvalidDataException` naming the duplicated ID, and the in-memory
   store throws `ArgumentException`; both also reject empty or whitespace
   profile IDs.
+- The profile stores also silently accepted duplicate executable names,
+  and since name matching compares file names case-insensitively and
+  ignores any directory portion, the first profile won every lookup and
+  the second was dead data. Both stores now reject a duplicate
+  executable name at load, naming it — `InvalidDataException` from the
+  JSON store, `ArgumentException` from the in-memory store — the same
+  treatment duplicate profile IDs already got.
 - `FileLogService` accepted any log `FileName`, including path
   separators and `..` traversal; it now validates the name at
   construction with the same rules as storage keys. `FileStorageService`

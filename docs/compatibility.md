@@ -95,6 +95,15 @@ directory ignored). `WineCompatibilityLayer.CanRun(game)` is a cheap
 prediction taken straight from the database: it returns the matching
 profile's rating, and `Unknown` when the game has no profile.
 
+Because the executable file name is the whole matching key, it must be
+unique within a database under that same comparison: two profiles whose
+executable names differ only by case or by a directory portion would
+shadow each other, the first winning every match and the second becoming
+dead data. Both stores therefore reject a duplicate executable name —
+`JsonGameProfileStore` throws `InvalidDataException` when the database
+loads, and `InMemoryGameProfileStore` throws `ArgumentException` at
+construction — exactly as both already reject duplicate profile IDs.
+
 In a JSON profile database, a profile's `rating` must be written as
 exactly one of the member names above, matched case-insensitively.
 Anything else — a misspelling, a comma-joined pair such as
