@@ -80,50 +80,51 @@ Graphics      Audio       Community Plugins  Tools
 
 ## Phase 1 — Foundation
 
--  Project architecture
--  Core libraries
--  UWP host application
--  Logging system
--  Configuration system
--  Plugin framework
+- [x] Project architecture
+- [x] Core libraries
+- [x] UWP host application
+- [x] Logging system
+- [x] Configuration system (options-based: catalog, logging, and storage are configured through options classes)
+- [ ] Plugin framework — contracts only so far (`IPlugin`, `IPluginCatalog`, `IPluginHost`); no plugin is discovered or loaded from disk yet
 
 ---
 
 ## Phase 2 — Compatibility Layer
 
--  Win32 abstraction
--  Process management
--  Memory management
--  Threading
--  DLL loading
--  File system virtualization
+- [ ] Win32 abstraction
+- [ ] Process management
+- [ ] Memory management
+- [ ] Threading
+- [ ] DLL loading
+- [ ] File system virtualization
+- [x] PE-based executable analysis — a standalone inspector reads PE headers (architecture, subsystem, DLL/managed detection); the catalog does not use it yet
 
 ---
 
 ## Phase 3 — Graphics
 
--  Graphics abstraction
--  DirectX translation research
--  Shader pipeline
--  Texture management
+- [ ] Graphics abstraction — the backend contract is defined in the core; no backend is implemented yet
+- [ ] DirectX translation research
+- [ ] Shader pipeline
+- [ ] Texture management
 
 ---
 
 ## Phase 4 — Input & Audio
 
--  Xbox controller support
--  Keyboard & mouse abstraction
--  Audio backend
--  XAudio compatibility research
+- [ ] Xbox controller support
+- [ ] Keyboard & mouse abstraction
+- [ ] Audio backend
+- [ ] XAudio compatibility research
 
 ---
 
 ## Phase 5 — Game Support
 
--  Game profiles
--  Compatibility database
--  Launcher UI
--  Save management
+- [ ] Game profiles — the profile model and store contract are defined; no profile store or database yet
+- [ ] Compatibility database
+- [ ] Launcher UI
+- [ ] Save management
 
 ---
 
@@ -140,7 +141,7 @@ Expect:
 
 Nothing should currently be considered stable.
 
-To be precise about what works today: X-Native can catalogue games from disk (including `game.json` manifests), analyse their executables, apply compatibility profiles, and present them in the launcher UI, and the Xbox host reports module health on its startup screen. **No PC game runs through X-Native yet** — the UWP sandbox forbids loading arbitrary executables, spawning processes, and JIT compilation, so execution is a research problem, not a shipped feature. See [docs/compatibility.md](docs/compatibility.md) for the full, honest picture.
+To be precise about what works today: X-Native can catalogue games from disk (including `game.json` manifests) and present them in the launcher UI, a standalone inspector can analyse a game's executable (PE headers, architecture, subsystem), and the Xbox host reports module health on its startup screen. Compatibility profiles are modelled in the core but are not yet stored or applied at runtime. **No PC game runs through X-Native yet** — the UWP sandbox forbids loading arbitrary executables, spawning processes, and JIT compilation, so execution is a research problem, not a shipped feature. See [docs/compatibility.md](docs/compatibility.md) for the full, honest picture.
 
 ---
 

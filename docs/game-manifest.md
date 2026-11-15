@@ -11,7 +11,10 @@ case-insensitively. Unknown properties are ignored.
 
 ## Fields
 
-### v1 — implemented today
+All of these fields are implemented today — v1 and v2 alike are read by the
+current catalog.
+
+### v1
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -22,16 +25,12 @@ case-insensitively. Unknown properties are ignored.
 | `publisher` | string | No | Publisher name. |
 | `version` | string | No | The game's version string, as free text (not parsed). |
 
-### v2 — being added
-
-These fields are part of the format's next revision. They are documented here
-so manifests written now keep working, but the current catalog does not read
-them yet.
+### v2
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `arguments` | string | No | Command-line arguments to pass when the game is launched. |
-| `icon` | string | No | Path to an icon image, relative to the manifest folder, shown in the launcher. |
+| `arguments` | string | No | Command-line arguments to pass when the game is launched. Recorded on the game as `GameInfo.LaunchArguments`; absent or whitespace-only means `null` (no arguments). |
+| `icon` | string | No | Path to an icon image, relative to the manifest folder, shown in the launcher. Recorded on the game as `GameMetadata.IconPath` **only if** the resolved path stays inside the manifest folder tree **and** the file exists. A missing or escaping icon is ignored — it never invalidates the game. |
 
 ## Example
 
@@ -48,19 +47,36 @@ them yet.
 }
 ```
 
-(`arguments` and `icon` are the v2 fields described above.)
-
 ## Path rules
 
-- Every path in a manifest (`executable`, `workingDirectory`, and the v2
-  `icon`) is **relative to the folder containing the `game.json` file**.
+- Every path in a manifest (`executable`, `workingDirectory`, and `icon`)
+  is **relative to the folder containing the `game.json` file**.
 - Paths must stay inside that folder. A manifest is data read from disk, and
-  X-Native treats it as untrusted: an entry that resolves outside its own
-  folder is not a valid way to point at a game. See
+  X-Native treats it as untrusted: paths are resolved to full paths and
+  checked against the manifest folder before use. See
   [SECURITY.md](../SECURITY.md) — path-handling reports are in scope.
+- An `executable` or `workingDirectory` that escapes the manifest folder
+  (for example `"../OtherGame/game.exe"`) **rejects the manifest**: no game
+  is created from it, and the folder falls back to a bare executable scan.
+- An `icon` that escapes the folder is treated more gently: the icon is
+  simply ignored (and a missing icon file is ignored the same way). Only
+  the executable and working directory can reject a manifest.
 - `executable` is a file name (subfolders below the manifest folder are
   fine, e.g. `"bin/Game.exe"`); the file must exist or the manifest is
   skipped silently and the folder falls back to a bare executable scan.
+
+## Game IDs
+
+Every catalogued game gets an ID of the form `<slug>-<hash>`, where the slug
+is the game's lowercased name (spaces become dashes) and the hash is the
+FNV-1a 64-bit hash of the executable's normalised full path, rendered as 16
+lowercase hexadecimal characters.
+
+IDs are **stable**: the same executable at the same path gets the same ID on
+every scan, in every process, across restarts — rescanning never changes a
+game's identity. The flip side of deriving the ID from the path: **moving or
+renaming a game's executable changes its ID**, because the game is then, as
+far as the catalog is concerned, at a different location.
 
 ## Discovery rules
 

@@ -50,13 +50,17 @@ X-Native has to start from them.
 
 - Catalogues games from disk, including `game.json` manifests
   ([game-manifest.md](game-manifest.md)).
-- Analyses PE executables (headers, architecture, characteristics).
-- Stores and resolves compatibility profiles and ratings per game.
+- Analyses PE executables (headers, architecture, characteristics) with a
+  standalone inspector in `XNative.Platform`. The catalog does not call it
+  yet, so catalogued games still carry `Unknown` architecture.
+- Defines the compatibility profile model (`GameProfile`,
+  `CompatibilityRating`) and the `IGameProfileStore` contract. No profile
+  store ships yet, so no profile is stored or resolved at runtime.
 - Provides the launcher UI and reports module health on the Xbox host's
   startup screen.
-- Attempts launches through a runner pipeline that resolves the game's
-  profile and reports a structured result — which, today, reports that the
-  game cannot be executed on this platform rather than executing it.
+- Attempts launches through `IGameRunner`. The current runner is a stub:
+  it reports a structured failure (`LaunchResult` with a
+  `LaunchFailureReason`) instead of executing the game.
 
 **No PC game runs through X-Native today.** Any source claiming otherwise
 is wrong, and a bug report against the claim is welcome.
