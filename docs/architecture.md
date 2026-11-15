@@ -54,10 +54,10 @@ table says so — a contract is not an implementation.
 | `IStorageService` | `ReadTextAsync`; `WriteTextAsync`; `ExistsAsync`; `DeleteAsync` | `FileStorageService`, in `XNative.Platform` |
 | `IProcessService` | `CanStartProcesses`; `StartAsync`; `GetRunningProcess`; `StopAsync` | `SystemProcessService`, in `XNative.Platform` |
 | `IGameCatalog` | `GetGamesAsync`; `FindByIdAsync`; `FindByExecutablePathAsync`; `RefreshAsync` | `LocalGameCatalog`, in `XNative.Platform` |
-| `IGameRunner` | `LaunchAsync(game)`; `LaunchAsync(game, LaunchOptions)` | `CompatibilityGameRunner`, in `XNative.Wine` — a stub that reports failure; it does not execute games (see below) |
+| `IGameRunner` | `LaunchAsync(game)`; `LaunchAsync(game, LaunchOptions)` | `CompatibilityGameRunner`, in `XNative.Wine` — runs the shared launch pipeline (validation, profile resolution, structured failure); it does not execute games (see below) |
 | `IDeviceInfoService` | `GetDeviceInfo()` | `UwpDeviceInfoService`, in `XNative.XboxHost`; `DesktopDeviceInfoService`, in `XNative.App` |
-| `IGameProfileStore` | `GetProfiles()`; `FindForGame(game)` | Contract only — intended for `XNative.Wine`; no implementation yet |
-| `ICompatibilityLayer` | `Id`; `DisplayName`; `CanRun(game)`; `RunAsync(game, options)` | Contract only — intended for `XNative.Wine`; no implementation yet |
+| `IGameProfileStore` | `GetProfiles()`; `FindForGame(game)` | `InMemoryGameProfileStore` and `JsonGameProfileStore`, in `XNative.Wine` |
+| `ICompatibilityLayer` | `Id`; `DisplayName`; `CanRun(game)`; `RunAsync(game, options)` | `WineCompatibilityLayer`, in `XNative.Wine` — predicts from the profile store; `RunAsync` delegates to the same launch pipeline as the runner |
 | `IGraphicsBackend` | `Id`; `DisplayName`; `SupportedApis`; `IsInitialized`; `Initialize()`; `Shutdown()` | Contract only — intended for `XNative.Graphics`; no implementation yet |
 | `IPluginHost` | `Log`; `PluginDirectory` | Contract only — intended for `XNative.Plugins`; no implementation yet |
 | `IModuleDescriptor` | `Id`; `DisplayName` | One descriptor class per module (for example `CoreModuleDescriptor`, `PlatformModuleDescriptor`) |
@@ -126,13 +126,54 @@ no graphics translation takes place.
 
 ### XNative.Wine
 
-Boundary for a future compatibility layer. `AddXNativeWine()` registers its
-module descriptor and `CompatibilityGameRunner` as `IGameRunner`. The runner
-is a stub: it recognises Windows executables and returns a failed
-`LaunchResult` ("Compatibility backend not implemented"); every other
-executable type fails as unsupported. It executes nothing. The
-`ICompatibilityLayer` and `IGameProfileStore` contracts it is intended to
-host have no implementation yet, and no profile is resolved during a launch.
+The compatibility layer module. It executes nothing — no backend exists and
+the sandbox forbids one — but everything around execution is real: a launch
+pipeline, a compatibility database, and structured, honest failure.
+`AddXNativeWine()` registers the module descriptor, an `IGameProfileStore`
+(an empty `InMemoryGameProfileStore` by default), `CompatibilityGameRunner`
+as `IGameRunner`, and `WineCompatibilityLayer` as `ICompatibilityLayer`.
+
+Both entry points delegate to one internal pipeline,
+`CompatibilityLaunchPipeline`, so the runner and the layer can never
+disagree about an outcome. For each launch the pipeline, in order:
+
+1. Rejects a non-Windows executable type with
+   `LaunchFailureReason.UnsupportedExecutableType`.
+2. When a file system service is available, verifies the executable exists;
+   a missing file fails with `LaunchFailureReason.ExecutableNotFound`.
+3. Resolves the compatibility profile: an explicit
+   `LaunchOptions.ProfileId` wins (an unknown id is logged as a warning and
+   the launch continues unprofiled); otherwise the store's `FindForGame`
+   matches by executable file name. Launch arguments resolve in the order
+   per-launch options, the game's catalogued arguments, then the profile's
+   recommended arguments.
+4. Fails a profile rated `Broken` with `LaunchFailureReason.KnownBroken`,
+   including the profile's notes in the message.
+5. Otherwise fails with `LaunchFailureReason.BackendNotImplemented` — the
+   honest end of every launch today. When a profile matched, the message
+   names its rating.
+
+Every step is logged when a log service is available. Constructing the
+runner or the layer with no dependencies skips the file-system, profile,
+and logging steps and reproduces the original stub results exactly.
+
+`WineCompatibilityLayer` (`Id` `"wine"`, display name "Wine (research)")
+adds `CanRun(game)`: a cheap prediction that returns the matching profile's
+`CompatibilityRating`, or `Unknown` when the game has no profile (or no
+store was supplied).
+
+The profile stores live in `XNative.Wine.Profiles`:
+
+- `InMemoryGameProfileStore` — a fixed list supplied at construction.
+  Matching is by executable file name, case-insensitive, ignoring any
+  directory portion of either path, so Windows-style paths match on any
+  host.
+- `JsonGameProfileStore` — loads a JSON array of
+  `{ "id", "executableName", "rating", "notes"?, "recommendedArguments"? }`
+  objects (rating is a `CompatibilityRating` member name, matched
+  case-insensitively). A malformed database is loud, never silently empty:
+  invalid JSON, a missing required field, or an unknown rating throws
+  `InvalidDataException` at load time.
 
 ### XNative.Plugins
 
@@ -144,14 +185,35 @@ no plugin host implementation, and no loading of plugins from disk.
 ### XNative.UI
 
 View framework agnostic MVVM primitives: `ObservableObject`, `ViewModelBase`,
-`RelayCommand` and `INavigationService`, plus the view models under
-`ViewModels`. It contains no views and no XAML, so the same view models can be
-reused by a UWP head, by a desktop head or by tests.
+`RelayCommand`, `AsyncRelayCommand` and `INavigationService`, plus the view
+models under `ViewModels`. It contains no views and no XAML, so the same view
+models can be reused by a UWP head, by a desktop head or by tests.
+`AddXNativeUI()` registers the module descriptor and the `StartupViewModel`
+and `GameLibraryViewModel` as transients.
+
+`AsyncRelayCommand` wraps an asynchronous delegate: it reports
+`CanExecute == false` while running, and an exception thrown by the delegate
+never escapes onto the UI thread — it is captured in `LastError` and surfaced
+through the `ErrorRaised` event.
 
 `StartupViewModel` compares the module descriptors resolved from the container
-against the list of expected modules and reports each one as loaded or missing.
-`GameLibraryViewModel` scans through `IGameCatalog` and exposes the results
-for the library screen.
+against the expected module order (`xnative.core`, `xnative.platform`,
+`xnative.graphics`, `xnative.plugins`, `xnative.wine`, `xnative.ui`) and
+reports each one as loaded or missing, alongside the device description.
+
+`GameLibraryViewModel` is the launcher surface. It owns the full scan result
+(`Games`, ordered by name) and the projection a view binds to
+(`VisibleGames`): `SearchText` filters by case-insensitive substring match
+on the game name, and `SortMode` orders the result (`NameAscending` or
+`NameDescending`). A rescan preserves `SelectedGame` when a game with the
+same stable `Id` is still present. When constructed with an `IGameRunner`,
+`LaunchSelectedCommand` launches the selected game — passing the game's
+catalogued launch arguments through `LaunchOptions` — and `LaunchStatus`
+carries the runner's result message for success and failure alike; without a
+runner, launching is disabled and the command stays inert. `GameViewModel`
+wraps one `GameInfo` with null-safe metadata properties (`Description`,
+`Publisher`, `Version`), an `ArchitectureText` rendering, and the runner
+label derived from the executable type.
 
 ### XNative.App
 
@@ -224,6 +286,15 @@ whole solution, while MSBuild builds the host under `x64` or `x86`.
   path-traversal guard on manifest paths.
 - PE inspection: header parsing, architecture/subsystem classification, and
   DLL/managed detection, with tests built on synthetic PE files.
+- The launch pipeline: executable-type and existence validation, profile
+  resolution, and structured failure reasons — shared by the game runner
+  and the Wine compatibility layer.
+- Compatibility profile stores: in-memory and JSON-backed
+  implementations of `IGameProfileStore`, matched to games by executable
+  file name and consulted on every launch.
+- The launcher view models: scanning, search/filter, name sorting,
+  selection preserved across rescans, and launch through `IGameRunner`
+  with the outcome surfaced as status text.
 - The module system: one descriptor and one registration extension per
   module, resolved and reported at startup by both heads.
 - Startup reporting: the console head prints modules, device info, and scan
@@ -238,8 +309,9 @@ whole solution, while MSBuild builds the host under `x64` or `x86`.
   [compatibility.md](compatibility.md).
 - Wine itself, and any `Box86`/`Box64`-style emulation.
 - Graphics translation: no `IGraphicsBackend` implementation exists.
-- A compatibility profile store: no `IGameProfileStore` implementation
-  exists, so profiles are never resolved or applied at runtime.
+- A curated compatibility database: the profile stores exist and profiles
+  are resolved on every launch, but the default registration ships an
+  empty store and no profile data ships with the project yet.
 - Plugin loading from disk: no `IPluginCatalog` or `IPluginHost`
   implementation exists.
 - Catalog integration of the PE inspector: catalogued executables are not

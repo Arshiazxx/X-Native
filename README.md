@@ -121,9 +121,9 @@ Graphics      Audio       Community Plugins  Tools
 
 ## Phase 5 — Game Support
 
-- [ ] Game profiles — the profile model and store contract are defined; no profile store or database yet
+- [ ] Game profiles — the profile model and in-memory/JSON profile stores are implemented and resolved at launch; no curated profile data ships yet
 - [ ] Compatibility database
-- [ ] Launcher UI
+- [ ] Launcher UI — view models cover scanning, search/filter, sorting, and launching; no views ship yet
 - [ ] Save management
 
 ---
@@ -141,7 +141,7 @@ Expect:
 
 Nothing should currently be considered stable.
 
-To be precise about what works today: X-Native can catalogue games from disk (including `game.json` manifests) and present them in the launcher UI, a standalone inspector can analyse a game's executable (PE headers, architecture, subsystem), and the Xbox host reports module health on its startup screen. Compatibility profiles are modelled in the core but are not yet stored or applied at runtime. **No PC game runs through X-Native yet** — the UWP sandbox forbids loading arbitrary executables, spawning processes, and JIT compilation, so execution is a research problem, not a shipped feature. See [docs/compatibility.md](docs/compatibility.md) for the full, honest picture.
+To be precise about what works today: X-Native can catalogue games from disk (including `game.json` manifests) and present them in the launcher UI, a standalone inspector can analyse a game's executable (PE headers, architecture, subsystem), and the Xbox host reports module health on its startup screen. Compatibility profiles are stored (in-memory and JSON-backed stores) and resolved on every launch attempt — a game whose profile rates it broken is refused with a structured `KnownBroken` failure — but the default registration ships an empty store and no backend exists behind the launch pipeline. **No PC game runs through X-Native yet** — the UWP sandbox forbids loading arbitrary executables, spawning processes, and JIT compilation, so execution is a research problem, not a shipped feature. See [docs/compatibility.md](docs/compatibility.md) for the full, honest picture.
 
 ---
 

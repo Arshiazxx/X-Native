@@ -53,17 +53,59 @@ X-Native has to start from them.
 - Analyses PE executables (headers, architecture, characteristics) with a
   standalone inspector in `XNative.Platform`. The catalog does not call it
   yet, so catalogued games still carry `Unknown` architecture.
-- Defines the compatibility profile model (`GameProfile`,
-  `CompatibilityRating`) and the `IGameProfileStore` contract. No profile
-  store ships yet, so no profile is stored or resolved at runtime.
-- Provides the launcher UI and reports module health on the Xbox host's
-  startup screen.
-- Attempts launches through `IGameRunner`. The current runner is a stub:
-  it reports a structured failure (`LaunchResult` with a
-  `LaunchFailureReason`) instead of executing the game.
+- Stores compatibility profiles (`GameProfile`, `CompatibilityRating`)
+  through `IGameProfileStore`, implemented by an in-memory store and a
+  JSON-backed store in `XNative.Wine`. The default registration ships an
+  empty store — no curated profile database ships yet — but any profile
+  that is present is resolved and applied on every launch attempt.
+- Provides the launcher UI (scan, search, sort, launch) and reports module
+  health on the Xbox host's startup screen.
+- Attempts launches through `IGameRunner` and the Wine compatibility
+  layer, which share one launch pipeline: the request is validated, the
+  profile is consulted, and the attempt ends in a structured failure
+  (`LaunchResult` with a `LaunchFailureReason`) instead of executing the
+  game. The backend that would actually run a game does not exist.
 
 **No PC game runs through X-Native today.** Any source claiming otherwise
 is wrong, and a bug report against the claim is welcome.
+
+## Compatibility ratings
+
+Every profile rates its game with a `CompatibilityRating`:
+
+| Rating | Meaning |
+| --- | --- |
+| `Unknown` | Nobody has reported this game yet. |
+| `Broken` | The game does not start, or crashes immediately. |
+| `Starts` | The game starts but cannot really be played. |
+| `Playable` | The game can be played, with noticeable issues. |
+| `Perfect` | The game works as well as on a PC. |
+
+Ratings today are knowledge, not results: no game has been run, so a
+`Playable` or `Perfect` rating records what a profile author believes a
+future backend would achieve — it is never evidence that the game ran.
+
+Profiles are matched to games by executable file name (case-insensitive,
+directory ignored). `WineCompatibilityLayer.CanRun(game)` is a cheap
+prediction taken straight from the database: it returns the matching
+profile's rating, and `Unknown` when the game has no profile.
+
+## Why a launch fails: the structured reasons
+
+A launch attempt walks a fixed pipeline and stops at the first failure.
+The reasons a caller can observe today:
+
+| `LaunchFailureReason` | When it happens |
+| --- | --- |
+| `UnsupportedExecutableType` | The catalogued entry is not a Windows executable. Checked first, before anything else. |
+| `ExecutableNotFound` | The executable file is not on disk (checked when a file system service is available). |
+| `KnownBroken` | The game's profile rates it `Broken`. The failure message includes the profile's notes when it has any. |
+| `BackendNotImplemented` | The request was valid and not known-broken — and there is still no backend to run it. This is where every otherwise-valid launch ends today. When a profile matched, the message names its rating. |
+
+The enum also defines reasons the pipeline does not currently produce —
+`UnsupportedArchitecture`, `InvalidExecutable`, `BlockedBySandbox`,
+`Cancelled`, plus `None` (success) and `Unknown` — reserved for the
+backends and checks that will one day need them.
 
 ## Credible research directions
 

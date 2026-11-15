@@ -88,9 +88,11 @@ The games list is a selectable `ListView` bound to the game library. The
 `GameInfo` up in `IGameCatalog` by executable path, and calls
 `IGameRunner.LaunchAsync`. The outcome is shown next to the button;
 failures and exceptions are also mirrored into the page's error element, so
-the handler cannot crash the page. Today the registered runner is a stub, so
-a launch attempt reports that the compatibility backend is not implemented —
-no game is executed (see [compatibility.md](compatibility.md)).
+the handler cannot crash the page. Today the registered runner runs the
+launch pipeline — validation and profile resolution — but there is no
+backend behind it, so a launch attempt ends in a structured failure
+(`BackendNotImplemented`, or `KnownBroken` for a game whose profile rates it broken)
+and no game is executed (see [compatibility.md](compatibility.md)).
 
 ## Capabilities
 

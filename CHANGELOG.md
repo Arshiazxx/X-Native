@@ -32,6 +32,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the headers of Windows executables and reports their architecture,
   subsystem, and DLL/managed characteristics, with tests built on
   synthetic PE files.
+- A real launch pipeline in `XNative.Wine`, shared by
+  `CompatibilityGameRunner` and the new `WineCompatibilityLayer`
+  (`ICompatibilityLayer`): executable-type and existence validation,
+  compatibility profile resolution (an explicit `LaunchOptions.ProfileId`
+  wins; launch arguments resolve options → game → profile), and
+  structured failures — a profile rated `Broken` now fails the launch as
+  `KnownBroken`, and every other valid launch ends at
+  `BackendNotImplemented`. Every step is logged. The parameterless
+  constructors preserve the original stub behaviour exactly.
+- Compatibility profile stores (`IGameProfileStore` implementations):
+  `InMemoryGameProfileStore` and `JsonGameProfileStore`, matched to games
+  by executable file name. The JSON store fails loudly
+  (`InvalidDataException`) on a malformed database instead of silently
+  behaving as empty. `WineCompatibilityLayer.CanRun` predicts a game's
+  rating from its profile (`Unknown` when the game has no profile). The default module
+  registration ships an empty store; no curated profile database ships
+  yet.
+- Launcher features in the UI view models: `GameLibraryViewModel` gained
+  a filtered/sorted `VisibleGames` projection (`SearchText` substring
+  filter, `SortMode` name ordering), selection preserved across rescans
+  by stable game ID, and launching through an optional `IGameRunner` —
+  the selected game's catalogued arguments are passed via `LaunchOptions`
+  and the outcome is surfaced as `LaunchStatus`. New `AsyncRelayCommand`
+  captures delegate exceptions into `LastError` / `ErrorRaised` instead
+  of letting them escape onto the UI thread, and `GameViewModel` exposes
+  null-safe metadata plus architecture/runner display text.
+  `StartupViewModel`'s expected-module list now includes `xnative.ui`.
 - A runnable console head: `XNative.App` now targets `net8.0` and runs —
   it prints the resolved modules and device information
   (`DesktopDeviceInfoService`) and scans a folder with the game catalog as
@@ -59,7 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Notes
 
-- The game runner remains a stub: `CompatibilityGameRunner` reports a
-  failed launch result rather than executing anything, and no
-  compatibility profile is resolved during a launch. No PC game runs
-  through X-Native yet.
+- No PC game runs through X-Native yet. The launch pipeline validates
+  requests and resolves compatibility profiles, but there is no backend
+  behind it: every otherwise-valid launch still ends in a failed
+  `LaunchResult` with reason `BackendNotImplemented`.
