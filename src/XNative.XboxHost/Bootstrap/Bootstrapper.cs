@@ -4,6 +4,7 @@ using XNative.Core;
 using XNative.Core.Abstractions;
 using XNative.Graphics;
 using XNative.Platform;
+using XNative.Platform.Input;
 using XNative.Plugins;
 using XNative.UI;
 using XNative.Wine;
@@ -46,6 +47,7 @@ namespace XNative.XboxHost.Bootstrap
 
             services.AddSingleton<IModuleDescriptor, CoreModuleDescriptor>();
             services.AddXNativePlatform();
+            services.AddXNativeInput();
             services.AddXNativeGraphics();
             services.AddXNativeWine();
             services.AddXNativePlugins();

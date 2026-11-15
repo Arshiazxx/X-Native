@@ -6,8 +6,10 @@ using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Navigation;
 using XNative.Core.Abstractions;
 using XNative.Core.Games;
+using XNative.Platform.Input;
 using XNative.UI.ViewModels;
 using XNative.XboxHost.Bootstrap;
+using XNative.XboxHost.Input;
 
 namespace XNative.XboxHost.Views
 {
@@ -17,6 +19,8 @@ namespace XNative.XboxHost.Views
     /// </summary>
     public sealed partial class MainPage : Page
     {
+        private GamepadInputFeed? _inputFeed;
+
         /// <summary>
         /// Initializes a new instance of the <see cref="MainPage"/> class.
         /// </summary>
@@ -63,7 +67,22 @@ namespace XNative.XboxHost.Views
 
             GameLibrary = Bootstrapper.Resolve<GameLibraryViewModel>();
 
+            if (_inputFeed == null)
+            {
+                _inputFeed = new GamepadInputFeed(Bootstrapper.Resolve<ManualInputService>());
+            }
+
+            _inputFeed.Start();
+
             Bindings.Update();
+        }
+
+        /// <inheritdoc />
+        protected override void OnNavigatedFrom(NavigationEventArgs e)
+        {
+            _inputFeed?.Stop();
+
+            base.OnNavigatedFrom(e);
         }
 
         private async void OnLaunchButtonClick(object sender, RoutedEventArgs e)
