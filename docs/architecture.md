@@ -129,7 +129,17 @@ documents folder, falling back to `LocalApplicationData/XNative/Games`
 when the platform reports no documents folder (an empty root would
 silently catalogue nothing). Disposing the catalog while a refresh is in
 flight is safe: disposal is idempotent and the losing refresh returns
-quietly instead of throwing.
+quietly instead of throwing. Manifest reads are bounded: the catalog reads
+at most 1 MiB of a `game.json`, and an oversized manifest is treated as
+unparseable — skipped, with the folder falling back to a bare executable
+scan — so a scan never buffers an unbounded manifest into memory.
+`FileLogService` rotates its file: when the active log reaches
+`FileLogServiceOptions.MaximumFileSizeBytes` (5 MiB by default; a value of
+zero or less disables rotation) it is renamed to a single backup —
+`name.1.log` for `name.log`, replacing any previous backup — and the entry
+being written starts a fresh file, keeping on-disk log data bounded at
+roughly twice the threshold. Rotation is best-effort: a failed roll never
+loses the entry being logged and never throws.
 
 It also contains the PE inspector in `XNative.Platform.Executables`:
 `PeFileInspector` parses the headers of a Windows executable (from a byte

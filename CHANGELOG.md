@@ -130,6 +130,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A `global.json` pinning the .NET 8 SDK band (8.0.100,
   `latestFeature` roll-forward) so builds do not drift with newer SDKs,
   and a `.gitattributes` fixing line endings per file type.
+- Log rotation in `FileLogService`: when the active log file reaches
+  `FileLogServiceOptions.MaximumFileSizeBytes` (5 MiB by default; zero or
+  less disables rotation) it is rolled to a single backup (`name.1.log`
+  for `name.log`, replacing any previous backup) and logging continues
+  into a fresh file, so on-disk log data stays bounded at roughly twice
+  the threshold. Rotation is best-effort — a failed roll never loses the
+  entry being written and never throws.
 
 ### Changed
 
@@ -225,6 +232,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the sign bit set (reachable through an unchecked cast in a
   custom backend), hanging selection. The count now uses the unsigned
   representation and terminates for every input.
+- The catalog read `game.json` manifests with no size bound, buffering
+  the whole file into memory however large it was. Manifest reads are
+  now capped at 1 MiB; a larger manifest is treated as unparseable —
+  skipped, with the folder falling back to a bare executable scan.
+- Text reads in `SystemFileSystemService.ReadAllTextAsync` and
+  `FileStorageService.ReadTextAsync` ran to completion even after the
+  caller cancelled: `ReadToEndAsync` takes no cancellation token on
+  netstandard2.0. Both now read in chunks and check the token per chunk
+  (as does the catalog's manifest read), so a cancelled scan or settings
+  load stops promptly instead of reading to the end of the file.
 
 ### Notes
 

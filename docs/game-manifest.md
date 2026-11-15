@@ -9,6 +9,13 @@ The format is implemented today by `LocalGameCatalog` in
 `src/XNative.Platform/Games/LocalGameCatalog.cs`. Property names are matched
 case-insensitively. Unknown properties are ignored.
 
+A `game.json` file may be at most **1 MiB**. The catalog reads manifests
+with that cap, and a larger file is not read at all: it is treated exactly
+like a malformed manifest — skipped, with the folder falling back to a
+bare executable scan (see Discovery rules). Real manifests are a few
+hundred bytes; the cap exists so a stray oversized file in a game folder
+is never buffered whole into memory.
+
 ## Fields
 
 All of these fields are implemented today — v1 and v2 alike are read by the
@@ -55,6 +62,13 @@ current catalog.
   X-Native treats it as untrusted: paths are resolved to full paths and
   checked against the manifest folder before use. See
   [SECURITY.md](../SECURITY.md) — path-handling reports are in scope.
+- The containment check is lexical: it normalises `.` and `..` segments in
+  the resolved path but does not resolve junctions or symbolic links. A
+  junction or symlink planted inside the manifest folder that points
+  outside it passes the check, and the scan follows the link just as the
+  file system does. Planting one already requires write access to the
+  folder, but the check must not be treated as proof that the final
+  on-disk target is inside the tree.
 - An `executable` or `workingDirectory` that escapes the manifest folder
   (for example `"../OtherGame/game.exe"`) **rejects the manifest**: no game
   is created from it, and the folder falls back to a bare executable scan.
