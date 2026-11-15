@@ -159,6 +159,16 @@ That builds and tests the managed solution on Windows or Linux. Building and dep
 
 ---
 
+# Documentation
+
+- [docs/building.md](docs/building.md) — how to build and test the managed solution, and how to build the Xbox host with Visual Studio and MSBuild.
+- [docs/architecture.md](docs/architecture.md) — the clean-architecture layout: module boundaries, the contracts in `XNative.Core`, and how the composition roots wire implementations together.
+- [docs/xbox-host.md](docs/xbox-host.md) — the UWP Xbox head: its configuration, service composition, controller input feed, and launch behaviour.
+- [docs/game-manifest.md](docs/game-manifest.md) — the `game.json` manifest format a game folder uses to describe itself to the catalog.
+- [docs/compatibility.md](docs/compatibility.md) — the honest picture: what the Xbox Dev Mode sandbox allows, what X-Native does today, and what remains research.
+
+---
+
 # Why Open Source?
 
 Projects like this are too large for one developer alone.
