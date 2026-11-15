@@ -11,8 +11,9 @@ Contributions that keep that picture accurate are as welcome as code.
 
 For the managed libraries and tests (most contributions):
 
-- .NET SDK 8.0.x. The repo pins SDK `8.0.423` with `latestPatch` roll-forward
-  in [global.json](global.json), so any current 8.0.x SDK works.
+- .NET SDK 8.0.x. The repo pins SDK `8.0.100` with `latestFeature`
+  roll-forward in [global.json](global.json), so any 8.0.x SDK from that
+  feature band upward works.
 
 Only for the Xbox host (`src/XNative.XboxHost`):
 
@@ -31,6 +32,22 @@ dotnet build X-Native.sln -c Release
 dotnet test X-Native.sln -c Release
 ```
 
+Note that the solution references only four of the eight test projects, so
+the `dotnet test` step above runs those four and silently skips
+`XNative.App.Tests`, `XNative.Graphics.Tests`, `XNative.Plugins.Tests`,
+and `XNative.Integration.Tests`. Run every test project before opening a
+PR:
+
+```bash
+for proj in tests/*/*.csproj; do
+  dotnet test "$proj" -c Release
+done
+```
+
+The `TEST_PROJECTS` list at the top of
+[.github/workflows/ci.yml](.github/workflows/ci.yml) is the source of truth
+for the full set; [docs/building.md](docs/building.md) explains why.
+
 `dotnet build` on the solution builds every managed project and skips
 `XNative.XboxHost`: the .NET SDK cannot evaluate a legacy UWP project, so the
 host is mapped into the solution without a build entry under the `Any CPU`
@@ -38,8 +55,16 @@ configuration and is built with MSBuild / Visual Studio instead. Full
 instructions, including host deployment via the Device Portal, are in
 [docs/building.md](docs/building.md).
 
-CI runs the same restore / build / test sequence on Windows and Linux for
-every push to `main` and every pull request.
+CI runs on Windows and Linux for every push to `main` and every pull
+request: it restores and builds the solution, then restores, builds, and
+tests every test project explicitly from the `TEST_PROJECTS` list, and a
+guard job fails if a test project exists that is covered by neither the
+solution nor that list.
+
+For a quick smoke check without a console, the `XNative.App` console head
+has a diagnostic CLI (`info` / `scan` / `inspect` / `launch`) and the repo
+ships sample games and profiles under [examples/](examples/) — see
+"Smoke check: the console head" in [docs/building.md](docs/building.md).
 
 ## Architecture rules
 
@@ -77,7 +102,9 @@ document is [docs/architecture.md](docs/architecture.md).
 1. Branch from `main` with a descriptive name, e.g. `fix/catalog-depth` or
    `feat/pe-inspector`.
 2. Keep the change scoped. Unrelated cleanups go in their own PR.
-3. Make sure `dotnet build` and `dotnet test` pass locally.
+3. Make sure `dotnet build` and the full test suite (every project under
+   `tests/`, not just the solution — see "Build and test" above) pass
+   locally.
 4. Open a pull request and complete the PR template, including the testing
    and honesty checklists.
 5. If the change touches the Xbox host, say whether it was deployed to a
