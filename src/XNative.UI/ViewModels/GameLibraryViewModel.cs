@@ -78,6 +78,17 @@ namespace XNative.UI.ViewModels
     /// concurrent calls from several threads can pass a check together.
     /// Keep every interaction on the one thread.
     /// </para>
+    /// <para>
+    /// Lifetime: <see cref="UiModule.AddXNativeUI"/> registers this view
+    /// model as a singleton (per service provider), so a host whose
+    /// pages are not cached — the Xbox UWP head — rebinds this same
+    /// instance on every navigation to the library page instead of
+    /// discarding the scanned library and rescanning. That is safe
+    /// under the thread-affinity contract above: pages of one host
+    /// share the one UI thread, and the singleton's lifetime is the
+    /// provider's, so a host that rebuilds its provider still starts
+    /// from a fresh, empty library.
+    /// </para>
     /// </remarks>
     public sealed class GameLibraryViewModel : ViewModelBase
     {
