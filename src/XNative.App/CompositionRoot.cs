@@ -1,4 +1,6 @@
 using System;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using XNative.Core;
 using XNative.Core.Abstractions;
@@ -88,6 +90,10 @@ namespace XNative.App
         /// catalog and log options, with an explicit games root path
         /// taking precedence over the settings (see
         /// <see cref="SettingsBootstrap.ResolveGamesRoot(AppSettings, string)"/>).
+        /// The composed <see cref="ISettingsService"/> is seeded with
+        /// the same effective settings, so resolving it serves the
+        /// values this composition runs with instead of re-reading
+        /// storage (see <see cref="SeededSettingsService"/>).
         /// </summary>
         /// <param name="services">The service collection to populate.</param>
         /// <param name="settings">
@@ -125,6 +131,21 @@ namespace XNative.App
                 SettingsOptionsApplier.ApplyToCatalog(effectiveSettings, options));
             services.Configure<FileLogServiceOptions>(options =>
                 SettingsOptionsApplier.ApplyToLog(effectiveSettings, options));
+
+            // Replace the settings service the plain composition
+            // registered with one seeded from the effective settings
+            // above. A fresh JsonSettingsService would re-read storage
+            // on first use and could serve values that differ from the
+            // ones baked into the options (the file may have changed
+            // since the bootstrap load); the seeded service serves
+            // exactly the effective settings until a save or reset is
+            // made through it, which it persists through the real
+            // store. Registered last, so it wins single-service
+            // resolution over the AddXNativeSettings() registration.
+            services.AddSingleton<ISettingsService>(provider =>
+                new SeededSettingsService(
+                    effectiveSettings,
+                    new JsonSettingsService(provider.GetRequiredService<IStorageService>())));
 
             return services;
         }
@@ -184,6 +205,96 @@ namespace XNative.App
             return new ServiceCollection()
                 .AddXNative(gamesRootPath)
                 .BuildServiceProvider();
+        }
+
+        /// <summary>
+        /// <see cref="ISettingsService"/> that serves the settings a
+        /// composition was built with — the instance the bootstrap
+        /// loaded and the composition applied to its options — instead
+        /// of re-reading storage, so the composed provider can never
+        /// observe values that differ from the ones it is running
+        /// with. Saves and resets are persisted through a real
+        /// <see cref="JsonSettingsService"/> over the same storage;
+        /// once one succeeds the seed is dropped and the store's own
+        /// (just-written) values are served, so what was last written
+        /// and what is served can never disagree either.
+        /// </summary>
+        private sealed class SeededSettingsService : ISettingsService, IDisposable
+        {
+            private readonly object _gate = new object();
+            private readonly JsonSettingsService _store;
+            private AppSettings? _seeded;
+
+            /// <summary>
+            /// Initializes a new instance of the
+            /// <see cref="SeededSettingsService"/> class.
+            /// </summary>
+            /// <param name="seeded">
+            /// The effective settings to serve until the first save or
+            /// reset. Cloned on entry; never mutated afterwards.
+            /// </param>
+            /// <param name="store">
+            /// The store saves and resets are persisted through.
+            /// </param>
+            /// <exception cref="ArgumentNullException">
+            /// Thrown when <paramref name="seeded"/> or
+            /// <paramref name="store"/> is <c>null</c>.
+            /// </exception>
+            public SeededSettingsService(AppSettings seeded, JsonSettingsService store)
+            {
+                _seeded = (seeded ?? throw new ArgumentNullException(nameof(seeded))).Clone();
+                _store = store ?? throw new ArgumentNullException(nameof(store));
+            }
+
+            /// <inheritdoc />
+            public Task<AppSettings> GetAsync(CancellationToken cancellationToken = default)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                lock (_gate)
+                {
+                    if (_seeded != null)
+                    {
+                        return Task.FromResult(_seeded.Clone());
+                    }
+                }
+
+                return _store.GetAsync(cancellationToken);
+            }
+
+            /// <inheritdoc />
+            public async Task SaveAsync(AppSettings settings, CancellationToken cancellationToken = default)
+            {
+                // Persist first: when the store throws (validation or
+                // storage), nothing was written, so the seed remains
+                // the served value — still matching the options the
+                // application is running with.
+                await _store.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
+
+                lock (_gate)
+                {
+                    _seeded = null;
+                }
+            }
+
+            /// <inheritdoc />
+            public async Task ResetAsync(CancellationToken cancellationToken = default)
+            {
+                await _store.ResetAsync(cancellationToken).ConfigureAwait(false);
+
+                lock (_gate)
+                {
+                    _seeded = null;
+                }
+            }
+
+            /// <summary>
+            /// Releases the underlying store.
+            /// </summary>
+            public void Dispose()
+            {
+                _store.Dispose();
+            }
         }
     }
 }

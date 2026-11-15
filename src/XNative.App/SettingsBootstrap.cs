@@ -123,7 +123,10 @@ namespace XNative.App
     /// as well and reports a one-line warning on
     /// <see cref="SettingsLoadResult.LoadWarning"/> so the caller can
     /// surface it (the CLI prints it to standard error) without the
-    /// application failing to start. Cancellation is not swallowed.
+    /// application failing to start. The guard covers the whole load,
+    /// including building the throwaway provider and resolving the
+    /// settings service from it, so a construction failure is a
+    /// fallback too, not an escape. Cancellation is not swallowed.
     /// </para>
     /// <para>
     /// Games root precedence, highest first: an explicit command line
@@ -137,16 +140,77 @@ namespace XNative.App
         /// <summary>
         /// Loads the persisted settings through a minimal
         /// pre-composition (see the type remarks), disposing it before
-        /// returning. Never throws for a settings or storage failure:
-        /// the result then carries the defaults and a
-        /// <see cref="SettingsLoadResult.LoadWarning"/>.
+        /// returning. Never throws for a settings or storage failure —
+        /// or for a failure to build the pre-composition or resolve
+        /// the settings service from it: the result then carries the
+        /// defaults and a <see cref="SettingsLoadResult.LoadWarning"/>.
         /// </summary>
         /// <param name="cancellationToken">Token to cancel the load.</param>
         /// <returns>The load outcome; never <c>null</c>.</returns>
         public static async Task<SettingsLoadResult> LoadAsync(CancellationToken cancellationToken = default)
         {
-            using ServiceProvider provider = BuildSettingsProvider();
-            ISettingsService settingsService = provider.GetRequiredService<ISettingsService>();
+            try
+            {
+                using ServiceProvider provider = BuildSettingsProvider();
+                return await LoadAsync(provider, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+#pragma warning disable CA1031 // Do not catch general exception types: a settings load failure must never stop the application; the defaults are substituted and the failure is reported as a warning instead.
+            catch (Exception exception)
+#pragma warning restore CA1031
+            {
+                return CreateFallbackResult(exception);
+            }
+        }
+
+        /// <summary>
+        /// Loads the settings through the
+        /// <see cref="ISettingsService"/> registered in an existing
+        /// service provider. This is the testable core of the
+        /// construction step of
+        /// <see cref="LoadAsync(CancellationToken)"/>: a provider that
+        /// cannot supply the settings service — the registration is
+        /// missing, or constructing it fails — yields the defaults and
+        /// a <see cref="SettingsLoadResult.LoadWarning"/> instead of
+        /// throwing, exactly like a failed load. The provider is
+        /// <em>not</em> disposed; its lifetime stays with the caller.
+        /// </summary>
+        /// <param name="provider">
+        /// The provider to resolve the settings service from.
+        /// </param>
+        /// <param name="cancellationToken">Token to cancel the load.</param>
+        /// <returns>The load outcome; never <c>null</c>.</returns>
+        /// <exception cref="ArgumentNullException">
+        /// Thrown when <paramref name="provider"/> is <c>null</c>.
+        /// </exception>
+        public static async Task<SettingsLoadResult> LoadAsync(
+            IServiceProvider provider,
+            CancellationToken cancellationToken = default)
+        {
+            if (provider == null)
+            {
+                throw new ArgumentNullException(nameof(provider));
+            }
+
+            ISettingsService settingsService;
+            try
+            {
+                settingsService = provider.GetRequiredService<ISettingsService>();
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+#pragma warning disable CA1031 // Do not catch general exception types: a settings load failure must never stop the application; the defaults are substituted and the failure is reported as a warning instead.
+            catch (Exception exception)
+#pragma warning restore CA1031
+            {
+                return CreateFallbackResult(exception);
+            }
+
             return await LoadAsync(settingsService, cancellationToken).ConfigureAwait(false);
         }
 
@@ -185,9 +249,7 @@ namespace XNative.App
             catch (Exception exception)
 #pragma warning restore CA1031
             {
-                return new SettingsLoadResult(
-                    AppSettings.CreateDefault(),
-                    $"Warning: Could not load the saved settings ({exception.Message}); using defaults.");
+                return CreateFallbackResult(exception);
             }
         }
 
@@ -268,6 +330,13 @@ namespace XNative.App
             AppSettings effective = settings.Clone();
             effective.GamesRootPath = resolution.Path;
             return effective;
+        }
+
+        private static SettingsLoadResult CreateFallbackResult(Exception exception)
+        {
+            return new SettingsLoadResult(
+                AppSettings.CreateDefault(),
+                $"Warning: Could not load the saved settings ({exception.Message}); using defaults.");
         }
 
         private static ServiceProvider BuildSettingsProvider()

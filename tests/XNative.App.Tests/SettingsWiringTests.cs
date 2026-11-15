@@ -51,6 +51,52 @@ namespace XNative.App.Tests
         }
 
         [Fact]
+        public async Task Build_WithSettings_SettingsServiceServesLoadedSettings()
+        {
+            // The composed provider must not grow a second, divergent
+            // view of the settings: the ISettingsService it resolves
+            // serves the instance the composition was built with (the
+            // bootstrap-loaded one), not a fresh re-read of storage.
+            // Storage cannot produce these distinctive values in this
+            // test, so a re-read could not pass it.
+            var settings = new AppSettings
+            {
+                GamesRootPath = "loaded-root",
+                LogMinimumLevel = LogLevel.Warning,
+                ScanMaxDepth = 7,
+            };
+
+            using ServiceProvider provider = CompositionRoot.Build(settings, null);
+
+            ISettingsService service = provider.GetRequiredService<ISettingsService>();
+            AppSettings served = await service.GetAsync();
+
+            Assert.Equal("loaded-root", served.GamesRootPath);
+            Assert.Equal(LogLevel.Warning, served.LogMinimumLevel);
+            Assert.Equal(7, served.ScanMaxDepth);
+
+            // Every hand-out is a clone: mutating one cannot leak
+            // into the next.
+            served.GamesRootPath = "mutated";
+            AppSettings servedAgain = await service.GetAsync();
+            Assert.Equal("loaded-root", servedAgain.GamesRootPath);
+        }
+
+        [Fact]
+        public async Task Build_WithSettingsAndPathArgument_SettingsServiceServesEffectiveRoot()
+        {
+            // The seed is the *effective* settings: the explicit path
+            // argument wins there exactly like it does in the options.
+            var settings = new AppSettings { GamesRootPath = "settings-root" };
+
+            using ServiceProvider provider = CompositionRoot.Build(settings, "argument-root");
+
+            AppSettings served = await provider.GetRequiredService<ISettingsService>().GetAsync();
+
+            Assert.Equal("argument-root", served.GamesRootPath);
+        }
+
+        [Fact]
         public void Build_WithSettings_AppliesCatalogOptions()
         {
             string root = Path.Combine(Path.GetTempPath(), "xnative-settings-root");
@@ -191,6 +237,72 @@ namespace XNative.App.Tests
         }
 
         [Fact]
+        public async Task LoadAsync_ProviderWithoutSettingsService_ReturnsDefaultsWithWarning()
+        {
+            // The provider overload is the testable core of the
+            // parameterless overload's construction step: a provider
+            // that cannot supply an ISettingsService must produce the
+            // same defaults-plus-warning fallback as a failed load,
+            // not let the resolution exception escape — "loading never
+            // throws" covers construction, not just the storage read.
+            using ServiceProvider provider = new ServiceCollection().BuildServiceProvider();
+
+            SettingsLoadResult result = await SettingsBootstrap.LoadAsync(provider);
+
+            Assert.True(result.UsedFallback);
+            Assert.False(string.IsNullOrWhiteSpace(result.LoadWarning));
+            Assert.Contains("using defaults", result.LoadWarning);
+            Assert.Null(result.Settings.GamesRootPath);
+            Assert.Equal(AppSettings.DefaultScanMaxDepth, result.Settings.ScanMaxDepth);
+        }
+
+        [Fact]
+        public async Task LoadAsync_ProviderWithFailingSettingsConstruction_ReturnsDefaultsWithWarning()
+        {
+            var services = new ServiceCollection();
+            services.AddSingleton<ISettingsService>(
+                _ => throw new InvalidOperationException("sabotaged settings construction"));
+            using ServiceProvider provider = services.BuildServiceProvider();
+
+            SettingsLoadResult result = await SettingsBootstrap.LoadAsync(provider);
+
+            Assert.True(result.UsedFallback);
+            Assert.False(string.IsNullOrWhiteSpace(result.LoadWarning));
+            Assert.Contains("using defaults", result.LoadWarning);
+            Assert.Null(result.Settings.GamesRootPath);
+            Assert.Equal(LogLevel.Information, result.Settings.LogMinimumLevel);
+        }
+
+        [Fact]
+        public async Task LoadAsync_ProviderWithStubService_ReturnsItsSettingsWithoutWarning()
+        {
+            var stored = new AppSettings
+            {
+                GamesRootPath = "stored-root",
+                ScanMaxDepth = 7,
+            };
+            var services = new ServiceCollection();
+            services.AddSingleton<ISettingsService>(new StubSettingsService(stored));
+            using ServiceProvider provider = services.BuildServiceProvider();
+
+            SettingsLoadResult result = await SettingsBootstrap.LoadAsync(provider);
+
+            Assert.False(result.UsedFallback);
+            Assert.Null(result.LoadWarning);
+            Assert.Equal("stored-root", result.Settings.GamesRootPath);
+            Assert.Equal(7, result.Settings.ScanMaxDepth);
+        }
+
+        [Fact]
+        public async Task LoadAsync_CancellingService_PropagatesCancellation()
+        {
+            // Cancellation is not a load failure: it must never be
+            // converted into the defaults fallback, at any layer.
+            await Assert.ThrowsAsync<OperationCanceledException>(
+                () => SettingsBootstrap.LoadAsync(new CancellingSettingsService()));
+        }
+
+        [Fact]
         public async Task LoadAsync_StubService_ReturnsItsSettingsWithoutWarning()
         {
             var stored = new AppSettings
@@ -260,6 +372,24 @@ namespace XNative.App.Tests
             public Task<AppSettings> GetAsync(CancellationToken cancellationToken = default)
             {
                 return Task.FromResult(_settings.Clone());
+            }
+
+            public Task SaveAsync(AppSettings settings, CancellationToken cancellationToken = default)
+            {
+                return Task.CompletedTask;
+            }
+
+            public Task ResetAsync(CancellationToken cancellationToken = default)
+            {
+                return Task.CompletedTask;
+            }
+        }
+
+        private sealed class CancellingSettingsService : ISettingsService
+        {
+            public Task<AppSettings> GetAsync(CancellationToken cancellationToken = default)
+            {
+                throw new OperationCanceledException();
             }
 
             public Task SaveAsync(AppSettings settings, CancellationToken cancellationToken = default)
