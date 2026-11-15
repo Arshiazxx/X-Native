@@ -93,7 +93,13 @@ The core's model types are grouped by namespace:
   graphics backend can translate.
 - `XNative.Core.Input` — `GamepadState` and `KeyboardState` (immutable,
   validated snapshots), the `GamepadButtons` flags and `KeyboardKey` enum,
-  and `InputConstants` (`MaxPlayers` = 4 player slots).
+  and `InputConstants` (`MaxPlayers` = 4 player slots). `GamepadState`
+  validates at construction, so an invalid snapshot cannot exist: axis
+  and trigger values must be in range and not NaN, `buttons` must not
+  set any bit outside the defined `GamepadButtons` flags (an undefined
+  bit throws `ArgumentOutOfRangeException`), and the timestamp must be
+  UTC — any other `DateTimeKind` throws `ArgumentException`, so snapshot
+  timestamps are always comparable.
 - `XNative.Core.Settings` — `AppSettings`, the persisted settings model
   (games root, minimum log level, scan depth, executable patterns) with a
   `Validate()` that rejects out-of-range values.
@@ -171,7 +177,11 @@ case-insensitively; duplicate or empty ids are rejected with
 as the resolvable `IGraphicsBackend`. The selector picks, among the backends
 whose `SupportedApis` cover every required API, the one adding the fewest
 extra APIs (ties break by registration order), and returns `null` when none
-qualifies. `NullGraphicsBackend` (id `null`) is lifecycle-complete but
+qualifies. The extra-API count is taken over the value's unsigned
+representation, so it terminates for every input — including a
+`SupportedApis` value with bits set outside the defined `GraphicsApi`
+flags, which a custom backend could only produce through an unchecked
+cast. `NullGraphicsBackend` (id `null`) is lifecycle-complete but
 supports `GraphicsApi.None` only and renders nothing, so it is selected
 only when no API is required. No backend translates or renders anything
 yet.
@@ -222,11 +232,14 @@ The profile stores live in `XNative.Wine.Profiles`:
   host.
 - `JsonGameProfileStore` — loads a JSON array of
   `{ "id", "executableName", "rating", "notes"?, "recommendedArguments"? }`
-  objects (rating is a `CompatibilityRating` member name, matched
-  case-insensitively). A malformed database is loud, never silently empty:
-  invalid JSON, a missing required field, an unknown rating, an empty or
-  whitespace `id`, or a duplicated `id` throws `InvalidDataException` at
-  load time.
+  objects. The rating must be exactly one `CompatibilityRating` member
+  name, matched case-insensitively: composite strings such as
+  `"Broken, Starts"` and numeric strings such as `"3"` are not member
+  names and are rejected like any other unknown rating (a lenient flags
+  parse would silently read both as `Playable`). A malformed database is
+  loud, never silently empty: invalid JSON, a missing required field, an
+  unknown rating, an empty or whitespace `id`, or a duplicated `id`
+  throws `InvalidDataException` at load time.
 
 Both stores reject duplicate profile IDs (compared case-insensitively):
 the in-memory store's constructor throws `ArgumentException`. A duplicate
@@ -241,11 +254,37 @@ this project rather than in the core, plus the core's `IPluginHost`.
 `InMemoryPluginCatalog` (a head that ships plugins registers its own
 catalog or plugin instances instead), a `PluginHost` (the registered
 `ILogService` plus the application base directory as the plugin
-directory), and a `PluginManager`. The manager initialises each catalog
-plugin against the host with failure isolation — one plugin throwing is
-logged, recorded as `Failed` in the returned
-`PluginInitializationReport`, and never stops the others — and attempts
-each plugin ID at most once per manager instance.
+directory), and a `PluginManager`.
+
+`InMemoryPluginCatalog` validates its contents at construction: a `null`
+entry, a plugin whose `Id` is `null`, empty or whitespace, or two plugins
+sharing an `Id` (compared case-insensitively) throw `ArgumentException`
+naming the offending ID — a duplicate is never allowed to silently shadow
+the plugin registered first.
+
+The manager initialises each catalog plugin against the host with failure
+isolation — one plugin throwing is logged, recorded as `Failed` in the
+returned `PluginInitializationReport`, and never stops the others — and
+attempts each plugin at most once per manager instance. The guarantees
+are precise:
+
+- Attempts are tracked per plugin *instance* as well as per ID. A second
+  sighting of the same instance is reported `AlreadyInitialized`; a
+  *different* instance claiming an ID the manager has already attempted
+  is reported `Failed` (with an `InvalidOperationException`), because it
+  can never run under that manager — the report never claims an outcome
+  for a plugin that did not run. (The catalog check above rejects
+  duplicates up front; this guard keeps the report honest for custom
+  `IPluginCatalog` implementations that do not validate.)
+- The isolation boundary covers the plugin's identity: if reading
+  `IPlugin.Id` itself throws, or the ID is `null`, empty or whitespace,
+  that plugin is recorded as `Failed` under its type name and the
+  remaining plugins still initialise — one bad plugin cannot abort the
+  run or suppress the report.
+- Failure logging is best-effort: if the host's `ILogService` throws
+  while a failure is being logged, the exception is swallowed. The report
+  entry already carries the original failure, so a broken log sink can
+  never abort initialisation or change its outcome.
 
 Plugins are in-process only, by design: the UWP sandbox blocks loading
 arbitrary assemblies at runtime, so there is no folder scanning and no

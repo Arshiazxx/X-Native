@@ -95,6 +95,15 @@ directory ignored). `WineCompatibilityLayer.CanRun(game)` is a cheap
 prediction taken straight from the database: it returns the matching
 profile's rating, and `Unknown` when the game has no profile.
 
+In a JSON profile database, a profile's `rating` must be written as
+exactly one of the member names above, matched case-insensitively.
+Anything else — a misspelling, a comma-joined pair such as
+`Broken, Starts`, or a number such as `3` — is malformed data:
+`JsonGameProfileStore` throws `InvalidDataException` when the database
+loads rather than guessing. The strictness matters because a lenient
+flags-style parse would silently upgrade a game: `Broken, Starts` (and
+`3`) combine to the different, defined rating `Playable`.
+
 ## Why a launch fails: the structured reasons
 
 A launch attempt walks a fixed pipeline and stops at the first failure.

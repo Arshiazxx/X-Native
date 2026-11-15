@@ -197,6 +197,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `EnvironmentVariables`; it now logs a warning naming each option as
   not applied by the current compatibility backend (the launch result
   itself is unchanged).
+- Plugin identity problems were silently mishandled: `InMemoryPluginCatalog`
+  accepted duplicate plugin IDs, so a second plugin with the same ID
+  never ran while `PluginManager` still reported it as already
+  initialised, and a plugin whose `Id` getter threw aborted the whole
+  initialisation with no report at all. Duplicate IDs (compared
+  case-insensitively), empty IDs, and `null` entries now throw
+  `ArgumentException` naming the ID at catalog construction; a different
+  instance claiming an ID a manager has already attempted is reported
+  `Failed` rather than `AlreadyInitialized`; a throwing `Id` getter is
+  isolated as that plugin's own failure; and a log service that throws
+  while a failure is being logged can no longer abort initialisation.
+- `JsonGameProfileStore` parsed profile ratings with `Enum.TryParse`,
+  which also accepts comma-joined member names and numeric strings:
+  `"Broken, Starts"` — and `"3"` — silently loaded as `Playable`. A
+  rating must now be exactly one defined `CompatibilityRating` member
+  name (case-insensitive); anything else throws `InvalidDataException`
+  at load time, like the rest of a malformed database.
+- `GamepadState` accepted snapshots with bits set outside the defined
+  `GamepadButtons` flags and timestamps of any `DateTimeKind`, so
+  snapshots could carry meaningless buttons and incomparable
+  timestamps. Undefined button bits now throw
+  `ArgumentOutOfRangeException` and a non-UTC timestamp throws
+  `ArgumentException` at construction.
+- `GraphicsBackendSelector` counted a backend's extra APIs with a
+  signed-shift loop that never terminated for a `SupportedApis` value
+  with the sign bit set (reachable through an unchecked cast in a
+  custom backend), hanging selection. The count now uses the unsigned
+  representation and terminates for every input.
 
 ### Notes
 
