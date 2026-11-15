@@ -72,7 +72,20 @@ namespace XNative.Platform.Storage
                 useAsync: true))
             using (var reader = new StreamReader(stream, Encoding.UTF8))
             {
-                return await reader.ReadToEndAsync().ConfigureAwait(false);
+                // Read in chunks with the token checked per chunk:
+                // ReadToEndAsync takes no cancellation token on
+                // netstandard2.0, so a single unbounded read would
+                // run to completion even after cancellation.
+                var builder = new StringBuilder();
+                var buffer = new char[4096];
+                int read;
+                while ((read = await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false)) > 0)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    builder.Append(buffer, 0, read);
+                }
+
+                return builder.ToString();
             }
         }
 

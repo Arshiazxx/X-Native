@@ -142,6 +142,27 @@ namespace XNative.Platform.Games
         /// </summary>
         private const int PeHeaderWindowBytes = 65536;
 
+        /// <summary>
+        /// Maximum size of a game manifest (<c>game.json</c>) the
+        /// catalog will read, in bytes (1 MiB). A manifest is a small
+        /// hand-written document; anything larger is corrupt or
+        /// hostile, and reading it without a cap would let a single
+        /// scanned folder exhaust memory during a routine scan.
+        /// Oversized manifests are treated as unparseable: the
+        /// manifest is skipped and the directory is scanned for
+        /// executables instead.
+        /// </summary>
+        private const int MaximumManifestBytes = 1024 * 1024;
+
+        // One shared options instance: JsonSerializerOptions is
+        // thread-safe for reads once in use and expensive to keep
+        // re-allocating per manifest file.
+        private static readonly JsonSerializerOptions ManifestSerializerOptions =
+            new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            };
+
         private readonly LocalGameCatalogOptions _options;
         private readonly IFileSystemService _fileSystem;
         private readonly PeFileInspector _peInspector;
@@ -203,7 +224,7 @@ namespace XNative.Platform.Games
                 return cached;
             }
 
-            await RefreshAsync(cancellationToken);
+            await RefreshAsync(cancellationToken).ConfigureAwait(false);
             return _cachedGames ?? Array.Empty<GameInfo>();
         }
 
@@ -215,7 +236,7 @@ namespace XNative.Platform.Games
                 return null;
             }
 
-            var games = await GetGamesAsync(cancellationToken);
+            var games = await GetGamesAsync(cancellationToken).ConfigureAwait(false);
             return games.FirstOrDefault(g => string.Equals(g.Id, id, StringComparison.OrdinalIgnoreCase));
         }
 
@@ -227,7 +248,7 @@ namespace XNative.Platform.Games
                 return null;
             }
 
-            var games = await GetGamesAsync(cancellationToken);
+            var games = await GetGamesAsync(cancellationToken).ConfigureAwait(false);
             return games.FirstOrDefault(g => string.Equals(g.ExecutablePath, executablePath, StringComparison.OrdinalIgnoreCase));
         }
 
@@ -243,7 +264,7 @@ namespace XNative.Platform.Games
 
             try
             {
-                await _refreshLock.WaitAsync(cancellationToken);
+                await _refreshLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (ObjectDisposedException)
             {
@@ -265,7 +286,7 @@ namespace XNative.Platform.Games
                 if (!string.IsNullOrWhiteSpace(_options.RootPath)
                     && _fileSystem.DirectoryExists(_options.RootPath))
                 {
-                    await ScanDirectoryAsync(_options.RootPath, 0, games, cancellationToken);
+                    await ScanDirectoryAsync(_options.RootPath, 0, games, cancellationToken).ConfigureAwait(false);
                 }
 
                 // Publish a fully built, immutable snapshot in a single
@@ -306,7 +327,7 @@ namespace XNative.Platform.Games
                 var manifestPath = Path.Combine(directory, "game.json");
                 if (_fileSystem.FileExists(manifestPath))
                 {
-                    var gameInfo = await TryCreateGameFromManifestAsync(manifestPath, directory, cancellationToken);
+                    var gameInfo = await TryCreateGameFromManifestAsync(manifestPath, directory, cancellationToken).ConfigureAwait(false);
                     if (gameInfo != null)
                     {
                         AddIfNew(games, gameInfo);
@@ -384,7 +405,7 @@ namespace XNative.Platform.Games
 
             foreach (var subDir in subDirs)
             {
-                await ScanDirectoryAsync(subDir, depth + 1, games, cancellationToken);
+                await ScanDirectoryAsync(subDir, depth + 1, games, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -392,11 +413,13 @@ namespace XNative.Platform.Games
         {
             try
             {
-                var json = await _fileSystem.ReadAllTextAsync(manifestPath, cancellationToken);
-                var manifest = JsonSerializer.Deserialize<GameManifest>(json, new JsonSerializerOptions
+                var json = await ReadManifestTextAsync(manifestPath, cancellationToken).ConfigureAwait(false);
+                if (json == null)
                 {
-                    PropertyNameCaseInsensitive = true
-                });
+                    return null;
+                }
+
+                var manifest = JsonSerializer.Deserialize<GameManifest>(json, ManifestSerializerOptions);
 
                 if (manifest == null || string.IsNullOrWhiteSpace(manifest.Executable))
                 {
@@ -404,7 +427,8 @@ namespace XNative.Platform.Games
                 }
 
                 // Path traversal guard: the resolved executable must stay
-                // inside the manifest's own directory tree.
+                // inside the manifest's own directory tree (lexically —
+                // see the remarks on IsPathInsideDirectory).
                 var exePath = Path.Combine(directory, manifest.Executable);
                 if (!IsPathInsideDirectory(exePath, directory))
                 {
@@ -467,6 +491,69 @@ namespace XNative.Platform.Games
             catch (NotSupportedException)
             {
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Reads a manifest file with a hard size cap of
+        /// <see cref="MaximumManifestBytes"/> bytes, honouring
+        /// <paramref name="cancellationToken"/> between chunks.
+        /// </summary>
+        /// <param name="manifestPath">Path of the manifest to read.</param>
+        /// <param name="cancellationToken">Token to cancel the read.</param>
+        /// <returns>The manifest text, or <c>null</c> when the file
+        /// cannot be opened or exceeds the size cap — both are treated
+        /// by the caller exactly like an unparseable manifest.
+        /// Cancellation is <b>not</b> swallowed: it propagates as
+        /// <see cref="OperationCanceledException"/>, like everywhere
+        /// else in a scan.</returns>
+        private async Task<string?> ReadManifestTextAsync(string manifestPath, CancellationToken cancellationToken)
+        {
+            using (var stream = _fileSystem.OpenRead(manifestPath))
+            {
+                if (stream == null)
+                {
+                    return null;
+                }
+
+                // Read at most MaximumManifestBytes + 1 bytes: the one
+                // extra byte distinguishes "exactly at the cap" from
+                // "over the cap" without ever buffering an unbounded
+                // file. The loop mirrors the bounded window read the
+                // PE inspector performs.
+                var buffer = new byte[8192];
+                using (var content = new MemoryStream())
+                {
+                    int read;
+                    while (content.Length <= MaximumManifestBytes
+                        && (read = await stream.ReadAsync(
+                                buffer,
+                                0,
+                                (int)Math.Min(buffer.Length, MaximumManifestBytes + 1L - content.Length),
+                                cancellationToken).ConfigureAwait(false)) > 0)
+                    {
+                        // ReadAsync is not required to honour the
+                        // token (in-memory streams ignore it), so
+                        // check explicitly: a cancelled scan must not
+                        // keep reading to the end of a huge manifest.
+                        cancellationToken.ThrowIfCancellationRequested();
+                        content.Write(buffer, 0, read);
+                    }
+
+                    if (content.Length > MaximumManifestBytes)
+                    {
+                        return null;
+                    }
+
+                    // Decode through a StreamReader so the encoding
+                    // handling (UTF-8 with byte-order-mark detection)
+                    // matches what ReadAllTextAsync did before.
+                    content.Position = 0;
+                    using (var reader = new StreamReader(content, Encoding.UTF8))
+                    {
+                        return reader.ReadToEnd();
+                    }
+                }
             }
         }
 
@@ -597,6 +684,18 @@ namespace XNative.Platform.Games
         /// normalization so that <c>..</c> segments cannot escape the
         /// directory tree. The directory itself counts as inside.
         /// </summary>
+        /// <remarks>
+        /// The guarantee is lexical only.
+        /// <see cref="Path.GetFullPath(string)"/> normalises <c>.</c>
+        /// and <c>..</c> segments, but it does not resolve junctions or
+        /// symbolic links: a junction or symlink planted inside the
+        /// directory tree that points outside it passes this check,
+        /// and the scan follows links just as the file system does.
+        /// That is an accepted residual risk for a local game library —
+        /// planting a link inside a game folder already requires write
+        /// access to that folder — but this method must not be treated
+        /// as proof that the final on-disk target is inside the tree.
+        /// </remarks>
         /// <param name="path">The candidate path (relative or absolute).</param>
         /// <param name="directory">The directory that must contain it.</param>
         /// <returns><c>true</c> when the normalized path is the directory

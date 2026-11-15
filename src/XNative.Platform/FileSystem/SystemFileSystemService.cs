@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using XNative.Core.Abstractions;
@@ -92,6 +93,10 @@ namespace XNative.Platform.FileSystem
             cancellationToken.ThrowIfCancellationRequested();
 
             // netstandard2.0 has no File.ReadAllTextAsync; use streams.
+            // The text is read in chunks with the token checked per
+            // chunk: ReadToEndAsync takes no cancellation token on
+            // netstandard2.0, so a single unbounded read would run to
+            // completion even after the caller cancelled.
             using (var stream = new FileStream(
                 path,
                 FileMode.Open,
@@ -101,7 +106,16 @@ namespace XNative.Platform.FileSystem
                 useAsync: true))
             using (var reader = new StreamReader(stream))
             {
-                return await reader.ReadToEndAsync().ConfigureAwait(false);
+                var builder = new StringBuilder();
+                var buffer = new char[4096];
+                int read;
+                while ((read = await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false)) > 0)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    builder.Append(buffer, 0, read);
+                }
+
+                return builder.ToString();
             }
         }
     }

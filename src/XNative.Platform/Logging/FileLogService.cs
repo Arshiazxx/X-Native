@@ -19,7 +19,10 @@ namespace XNative.Platform.Logging
     /// <see cref="FileLogServiceOptions.MinimumLevel"/> and never throws:
     /// when file IO fails the formatted entry is kept in a bounded
     /// in-memory ring buffer exposed through <see cref="BufferedEntries"/>
-    /// so diagnostics survive a broken log directory.
+    /// so diagnostics survive a broken log directory. The active file is
+    /// rolled to a single backup once it reaches
+    /// <see cref="FileLogServiceOptions.MaximumFileSizeBytes"/>, so the
+    /// log cannot grow without bound.
     /// </summary>
     public sealed class FileLogService : ILogService
     {
@@ -129,12 +132,74 @@ namespace XNative.Platform.Logging
                         Directory.CreateDirectory(_options.LogDirectory);
                     }
 
+                    RotateIfNeeded();
                     File.AppendAllText(LogFilePath, line + Environment.NewLine);
                 }
                 catch (Exception)
                 {
                     Buffer(line);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Full path of the single backup the active log file rolls
+        /// to: <c>name.1.log</c> for <c>name.log</c> (a name without an
+        /// extension gains a trailing <c>.1</c>).
+        /// </summary>
+        private string BackupLogFilePath
+        {
+            get
+            {
+                string path = LogFilePath;
+                string? directory = Path.GetDirectoryName(path);
+                string name = Path.GetFileNameWithoutExtension(path);
+                string extension = Path.GetExtension(path);
+                string backupName = name + ".1" + extension;
+                return string.IsNullOrEmpty(directory)
+                    ? backupName
+                    : Path.Combine(directory, backupName);
+            }
+        }
+
+        // Called with _lock held, before each append. The check runs
+        // per write rather than at construction because construction
+        // deliberately performs no file IO (the log directory may not
+        // exist yet, and this service's constructors never throw for
+        // IO reasons) — the first write after the threshold is crossed
+        // is therefore the roll point, including the very first write
+        // into a pre-existing oversized file.
+        private void RotateIfNeeded()
+        {
+            long maximum = _options.MaximumFileSizeBytes;
+            if (maximum <= 0)
+            {
+                return;
+            }
+
+            try
+            {
+                var info = new FileInfo(LogFilePath);
+                if (!info.Exists || info.Length < maximum)
+                {
+                    return;
+                }
+
+                string backupPath = BackupLogFilePath;
+                if (File.Exists(backupPath))
+                {
+                    File.Delete(backupPath);
+                }
+
+                File.Move(LogFilePath, backupPath);
+            }
+            catch (Exception)
+            {
+                // Rotation is best-effort: if the roll fails (the file
+                // is locked by another process, permissions changed),
+                // logging continues into the existing file rather than
+                // losing the entry or throwing — the ILogService
+                // contract is "never throw".
             }
         }
 

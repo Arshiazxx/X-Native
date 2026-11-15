@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using XNative.Platform.FileSystem;
 using Xunit;
@@ -42,6 +43,33 @@ namespace XNative.Platform.Tests.FileSystem
             string text = await _service.ReadAllTextAsync(path);
 
             Assert.Equal("hello x-native", text);
+        }
+
+        [Fact]
+        public async Task ReadAllTextAsync_RoundTripsLargeTextAcrossChunks()
+        {
+            string path = Path.Combine(_root, "large.txt");
+            string expected = new string('é', 5000) + new string('x', 5000);
+            File.WriteAllText(path, expected);
+
+            string text = await _service.ReadAllTextAsync(path);
+
+            Assert.Equal(expected, text);
+        }
+
+        [Fact]
+        public async Task ReadAllTextAsync_PreCancelledToken_Throws()
+        {
+            string path = Path.Combine(_root, "cancel.txt");
+            File.WriteAllText(path, "some text");
+
+            using (var source = new CancellationTokenSource())
+            {
+                source.Cancel();
+
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                    () => _service.ReadAllTextAsync(path, source.Token));
+            }
         }
 
         [Fact]

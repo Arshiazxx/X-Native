@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using XNative.Platform.Storage;
@@ -55,6 +56,29 @@ namespace XNative.Platform.Tests.Storage
 
             Assert.Equal("new-value", await _service.ReadTextAsync("k.txt"));
             Assert.Empty(Directory.GetFiles(_root, "*.tmp"));
+        }
+
+        [Fact]
+        public async Task Read_RoundTripsLargeValueAcrossChunks()
+        {
+            string expected = new string('é', 5000) + new string('x', 5000);
+            await _service.WriteTextAsync("large.txt", expected);
+
+            Assert.Equal(expected, await _service.ReadTextAsync("large.txt"));
+        }
+
+        [Fact]
+        public async Task Read_PreCancelledToken_Throws()
+        {
+            await _service.WriteTextAsync("k.txt", "value");
+
+            using (var source = new CancellationTokenSource())
+            {
+                source.Cancel();
+
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                    () => _service.ReadTextAsync("k.txt", source.Token));
+            }
         }
 
         [Fact]

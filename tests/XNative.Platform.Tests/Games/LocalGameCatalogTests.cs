@@ -82,8 +82,8 @@ namespace XNative.Platform.Tests.Games
             _mockFileSystem.Setup(fs => fs.GetDirectories(_testRoot)).Returns(new[] { dirPath });
             _mockFileSystem.Setup(fs => fs.GetDirectories(dirPath)).Returns(Array.Empty<string>());
             _mockFileSystem.Setup(fs => fs.FileExists(manifestPath)).Returns(true);
-            _mockFileSystem.Setup(fs => fs.ReadAllTextAsync(manifestPath, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(manifestJson);
+            _mockFileSystem.Setup(fs => fs.OpenRead(manifestPath))
+                .Returns(() => new MemoryStream(Encoding.UTF8.GetBytes(manifestJson)));
             _mockFileSystem.Setup(fs => fs.FileExists(exePath)).Returns(true);
             _mockFileSystem.Setup(fs => fs.GetFiles(dirPath, "*.exe")).Returns(Array.Empty<string>());
 
@@ -109,8 +109,8 @@ namespace XNative.Platform.Tests.Games
             _mockFileSystem.Setup(fs => fs.GetDirectories(_testRoot)).Returns(new[] { dirPath });
             _mockFileSystem.Setup(fs => fs.GetDirectories(dirPath)).Returns(Array.Empty<string>());
             _mockFileSystem.Setup(fs => fs.FileExists(manifestPath)).Returns(true);
-            _mockFileSystem.Setup(fs => fs.ReadAllTextAsync(manifestPath, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(manifestJson);
+            _mockFileSystem.Setup(fs => fs.OpenRead(manifestPath))
+                .Returns(() => new MemoryStream(Encoding.UTF8.GetBytes(manifestJson)));
             _mockFileSystem.Setup(fs => fs.FileExists(exePath)).Returns(true);
             _mockFileSystem.Setup(fs => fs.FileExists(Path.Combine(dirPath, "launcher.exe"))).Returns(true);
             _mockFileSystem.Setup(fs => fs.GetFiles(dirPath, "*.exe")).Returns(new[] { exePath });
@@ -253,8 +253,8 @@ namespace XNative.Platform.Tests.Games
             _mockFileSystem.Setup(fs => fs.GetDirectories(_testRoot)).Returns(new[] { dirPath });
             _mockFileSystem.Setup(fs => fs.GetDirectories(dirPath)).Returns(Array.Empty<string>());
             _mockFileSystem.Setup(fs => fs.FileExists(manifestPath)).Returns(true);
-            _mockFileSystem.Setup(fs => fs.ReadAllTextAsync(manifestPath, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(manifestJson);
+            _mockFileSystem.Setup(fs => fs.OpenRead(manifestPath))
+                .Returns(() => new MemoryStream(Encoding.UTF8.GetBytes(manifestJson)));
             // The escaping executable exists; rejection must come from the guard.
             _mockFileSystem.Setup(fs => fs.FileExists(evilPath)).Returns(true);
             _mockFileSystem.Setup(fs => fs.GetFiles(dirPath, "*.exe")).Returns(Array.Empty<string>());
@@ -276,8 +276,8 @@ namespace XNative.Platform.Tests.Games
             _mockFileSystem.Setup(fs => fs.GetDirectories(_testRoot)).Returns(new[] { dirPath });
             _mockFileSystem.Setup(fs => fs.GetDirectories(dirPath)).Returns(Array.Empty<string>());
             _mockFileSystem.Setup(fs => fs.FileExists(manifestPath)).Returns(true);
-            _mockFileSystem.Setup(fs => fs.ReadAllTextAsync(manifestPath, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(manifestJson);
+            _mockFileSystem.Setup(fs => fs.OpenRead(manifestPath))
+                .Returns(() => new MemoryStream(Encoding.UTF8.GetBytes(manifestJson)));
             _mockFileSystem.Setup(fs => fs.FileExists(exePath)).Returns(true);
             _mockFileSystem.Setup(fs => fs.GetFiles(dirPath, "*.exe")).Returns(Array.Empty<string>());
 
@@ -299,8 +299,8 @@ namespace XNative.Platform.Tests.Games
             _mockFileSystem.Setup(fs => fs.GetDirectories(_testRoot)).Returns(new[] { dirPath });
             _mockFileSystem.Setup(fs => fs.GetDirectories(dirPath)).Returns(Array.Empty<string>());
             _mockFileSystem.Setup(fs => fs.FileExists(manifestPath)).Returns(true);
-            _mockFileSystem.Setup(fs => fs.ReadAllTextAsync(manifestPath, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(manifestJson);
+            _mockFileSystem.Setup(fs => fs.OpenRead(manifestPath))
+                .Returns(() => new MemoryStream(Encoding.UTF8.GetBytes(manifestJson)));
             _mockFileSystem.Setup(fs => fs.FileExists(exePath)).Returns(true);
             _mockFileSystem.Setup(fs => fs.FileExists(iconPath)).Returns(true);
 
@@ -324,8 +324,8 @@ namespace XNative.Platform.Tests.Games
             _mockFileSystem.Setup(fs => fs.GetDirectories(_testRoot)).Returns(new[] { dirPath });
             _mockFileSystem.Setup(fs => fs.GetDirectories(dirPath)).Returns(Array.Empty<string>());
             _mockFileSystem.Setup(fs => fs.FileExists(manifestPath)).Returns(true);
-            _mockFileSystem.Setup(fs => fs.ReadAllTextAsync(manifestPath, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(manifestJson);
+            _mockFileSystem.Setup(fs => fs.OpenRead(manifestPath))
+                .Returns(() => new MemoryStream(Encoding.UTF8.GetBytes(manifestJson)));
             _mockFileSystem.Setup(fs => fs.FileExists(exePath)).Returns(true);
             // Icon file deliberately not set up: FileExists returns false.
 
@@ -523,8 +523,8 @@ namespace XNative.Platform.Tests.Games
             _mockFileSystem.Setup(fs => fs.GetDirectories(_testRoot)).Returns(new[] { dirPath });
             _mockFileSystem.Setup(fs => fs.GetDirectories(dirPath)).Returns(Array.Empty<string>());
             _mockFileSystem.Setup(fs => fs.FileExists(manifestPath)).Returns(true);
-            _mockFileSystem.Setup(fs => fs.ReadAllTextAsync(manifestPath, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(manifestJson);
+            _mockFileSystem.Setup(fs => fs.OpenRead(manifestPath))
+                .Returns(() => new MemoryStream(Encoding.UTF8.GetBytes(manifestJson)));
             _mockFileSystem.Setup(fs => fs.FileExists(exePath)).Returns(true);
             _mockFileSystem.Setup(fs => fs.OpenRead(exePath))
                 .Returns(() => new MemoryStream(SyntheticPe.X86ConsoleExe()));
@@ -599,8 +599,8 @@ namespace XNative.Platform.Tests.Games
             _mockFileSystem.Setup(fs => fs.GetDirectories(goodDir)).Returns(Array.Empty<string>());
 
             _mockFileSystem.Setup(fs => fs.FileExists(badManifestPath)).Returns(true);
-            _mockFileSystem.Setup(fs => fs.ReadAllTextAsync(badManifestPath, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(badManifestJson);
+            _mockFileSystem.Setup(fs => fs.OpenRead(badManifestPath))
+                .Returns(() => new MemoryStream(Encoding.UTF8.GetBytes(badManifestJson)));
             _mockFileSystem.Setup(fs => fs.FileExists(badExePath)).Returns(true);
             _mockFileSystem.Setup(fs => fs.GetFiles(badDir, "*.exe")).Returns(Array.Empty<string>());
 
@@ -614,6 +614,97 @@ namespace XNative.Platform.Tests.Games
 
             var game = Assert.Single(games);
             Assert.Equal(goodExePath, game.ExecutablePath);
+        }
+
+        [Fact]
+        public async Task GetGamesAsync_OversizedManifest_IsSkippedAndExeScanStillRuns()
+        {
+            // A manifest over the 1 MiB cap is treated as unparseable:
+            // it is skipped without being read in full, and the
+            // directory falls back to the plain executable scan.
+            var dirPath = Path.Combine(_testRoot, "GameHuge");
+            var manifestPath = Path.Combine(dirPath, "game.json");
+            var exePath = Path.Combine(dirPath, "huge.exe");
+            var manifestJson = "{\"name\": \"Huge Game\", \"executable\": \"huge.exe\", \"description\": \""
+                + new string('x', 1024 * 1024) + "\"}";
+            var manifestStream = new CountingReadStream(Encoding.UTF8.GetBytes(manifestJson));
+
+            _mockFileSystem.Setup(fs => fs.DirectoryExists(_testRoot)).Returns(true);
+            _mockFileSystem.Setup(fs => fs.GetDirectories(_testRoot)).Returns(new[] { dirPath });
+            _mockFileSystem.Setup(fs => fs.GetDirectories(dirPath)).Returns(Array.Empty<string>());
+            _mockFileSystem.Setup(fs => fs.FileExists(manifestPath)).Returns(true);
+            _mockFileSystem.Setup(fs => fs.OpenRead(manifestPath)).Returns(() => manifestStream);
+            _mockFileSystem.Setup(fs => fs.GetFiles(dirPath, "*.exe")).Returns(new[] { exePath });
+            _mockFileSystem.Setup(fs => fs.FileExists(exePath)).Returns(true);
+            _mockFileSystem.Setup(fs => fs.OpenRead(exePath))
+                .Returns(() => new MemoryStream(Encoding.UTF8.GetBytes("not a PE")));
+
+            var games = await _catalog.GetGamesAsync();
+
+            var game = Assert.Single(games);
+            Assert.Equal("huge", game.Name);
+            Assert.Equal(exePath, game.ExecutablePath);
+            // The bounded read never consumed more than cap + 1 bytes
+            // of the oversized manifest.
+            Assert.True(
+                manifestStream.BytesRead <= 1024 * 1024 + 1,
+                "Read " + manifestStream.BytesRead + " bytes of an oversized manifest.");
+        }
+
+        [Fact]
+        public async Task GetGamesAsync_ManifestExactlyAtSizeCap_StillLoads()
+        {
+            const int cap = 1024 * 1024;
+            var dirPath = Path.Combine(_testRoot, "GameCap");
+            var manifestPath = Path.Combine(dirPath, "game.json");
+            var exePath = Path.Combine(dirPath, "game.exe");
+            var prefix = "{\"name\": \"Cap Game\", \"executable\": \"game.exe\", \"description\": \"";
+            var suffix = "\"}";
+            int fillerLength = cap
+                - Encoding.UTF8.GetByteCount(prefix)
+                - Encoding.UTF8.GetByteCount(suffix);
+            var manifestJson = prefix + new string('y', fillerLength) + suffix;
+            Assert.Equal(cap, Encoding.UTF8.GetByteCount(manifestJson));
+
+            _mockFileSystem.Setup(fs => fs.DirectoryExists(_testRoot)).Returns(true);
+            _mockFileSystem.Setup(fs => fs.GetDirectories(_testRoot)).Returns(new[] { dirPath });
+            _mockFileSystem.Setup(fs => fs.GetDirectories(dirPath)).Returns(Array.Empty<string>());
+            _mockFileSystem.Setup(fs => fs.FileExists(manifestPath)).Returns(true);
+            _mockFileSystem.Setup(fs => fs.OpenRead(manifestPath))
+                .Returns(() => new MemoryStream(Encoding.UTF8.GetBytes(manifestJson)));
+            _mockFileSystem.Setup(fs => fs.FileExists(exePath)).Returns(true);
+
+            var games = await _catalog.GetGamesAsync();
+
+            var game = Assert.Single(games);
+            Assert.Equal("Cap Game", game.Name);
+            Assert.Equal(exePath, game.ExecutablePath);
+        }
+
+        [Fact]
+        public async Task RefreshAsync_CancellationDuringManifestRead_ThrowsOperationCanceled()
+        {
+            // The manifest stream cancels the token after its first
+            // chunk; the bounded read must notice between chunks and
+            // surface the cancellation instead of reading to the end.
+            var dirPath = Path.Combine(_testRoot, "GameCancel");
+            var manifestPath = Path.Combine(dirPath, "game.json");
+            var manifestJson = "{\"name\": \"Cancel Game\", \"executable\": \"game.exe\", \"description\": \""
+                + new string('z', 100000) + "\"}";
+
+            _mockFileSystem.Setup(fs => fs.DirectoryExists(_testRoot)).Returns(true);
+            _mockFileSystem.Setup(fs => fs.GetDirectories(_testRoot)).Returns(new[] { dirPath });
+            _mockFileSystem.Setup(fs => fs.GetDirectories(dirPath)).Returns(Array.Empty<string>());
+            _mockFileSystem.Setup(fs => fs.FileExists(manifestPath)).Returns(true);
+
+            using (var source = new CancellationTokenSource())
+            {
+                _mockFileSystem.Setup(fs => fs.OpenRead(manifestPath))
+                    .Returns(() => new CancelOnReadStream(Encoding.UTF8.GetBytes(manifestJson), source));
+
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                    () => _catalog.RefreshAsync(source.Token));
+            }
         }
 
         [Fact]
@@ -698,6 +789,49 @@ namespace XNative.Platform.Tests.Games
             Assert.Equal("A test", manifest.Description);
             Assert.Equal("TestPub", manifest.Publisher);
             Assert.Equal("1.0", manifest.Version);
+        }
+
+        /// <summary>
+        /// A read stream that counts the bytes actually consumed, so a
+        /// test can prove a bounded read stopped at its cap.
+        /// </summary>
+        private sealed class CountingReadStream : MemoryStream
+        {
+            public CountingReadStream(byte[] data)
+                : base(data)
+            {
+            }
+
+            public long BytesRead { get; private set; }
+
+            public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            {
+                int read = await base.ReadAsync(buffer, offset, count, cancellationToken);
+                BytesRead += read;
+                return read;
+            }
+        }
+
+        /// <summary>
+        /// A read stream that cancels the linked token source after
+        /// every read, simulating a caller cancelling mid-read.
+        /// </summary>
+        private sealed class CancelOnReadStream : MemoryStream
+        {
+            private readonly CancellationTokenSource _source;
+
+            public CancelOnReadStream(byte[] data, CancellationTokenSource source)
+                : base(data)
+            {
+                _source = source;
+            }
+
+            public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            {
+                int read = await base.ReadAsync(buffer, offset, Math.Min(count, 4096), cancellationToken);
+                _source.Cancel();
+                return read;
+            }
         }
     }
 }

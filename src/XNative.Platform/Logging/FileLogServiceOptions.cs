@@ -36,5 +36,19 @@ namespace XNative.Platform.Logging
         /// fallback buffer used when file IO fails.
         /// </summary>
         public int BufferCapacity { get; set; } = 100;
+
+        /// <summary>
+        /// Maximum size of the active log file, in bytes, before it
+        /// is rolled over (default 5 MiB). When a write finds the
+        /// active file at or over this size, the file is first
+        /// renamed to a single backup — <c>name.1.log</c> for
+        /// <c>name.log</c> — replacing any previous backup, and the
+        /// entry starts a fresh file, so on-disk log data stays
+        /// bounded at roughly twice this size. Rotation is
+        /// best-effort: a failed roll never loses the entry being
+        /// logged and never throws. A value of zero or less disables
+        /// rotation entirely.
+        /// </summary>
+        public long MaximumFileSizeBytes { get; set; } = 5 * 1024 * 1024;
     }
 }

@@ -37,12 +37,16 @@ namespace XNative.Platform.Tests.Logging
             }
         }
 
-        private FileLogService Create(LogLevel minimum = LogLevel.Trace, string? directory = null)
+        private FileLogService Create(
+            LogLevel minimum = LogLevel.Trace,
+            string? directory = null,
+            long maximumFileSizeBytes = 5 * 1024 * 1024)
         {
             return new FileLogService(Options.Create(new FileLogServiceOptions
             {
                 LogDirectory = directory ?? _root,
                 MinimumLevel = minimum,
+                MaximumFileSizeBytes = maximumFileSizeBytes,
             }));
         }
 
@@ -138,6 +142,90 @@ namespace XNative.Platform.Tests.Logging
             });
 
             Assert.Equal(Path.Combine(_root, "custom.log"), log.LogFilePath);
+        }
+
+        [Fact]
+        public void Log_RotatesToBackup_WhenFileReachesMaximumSize()
+        {
+            FileLogService log = Create(maximumFileSizeBytes: 200);
+            string path = Path.Combine(_root, "xnative.log");
+            string backup = Path.Combine(_root, "xnative.1.log");
+            string first = new string('a', 100);
+            string second = new string('b', 100);
+            string third = new string('c', 100);
+
+            log.Log(LogLevel.Information, first);
+            log.Log(LogLevel.Information, second);
+            Assert.False(File.Exists(backup));
+
+            // The file is now over the threshold, so this write rolls
+            // it first: the backup holds the first two entries and the
+            // fresh active file holds only the third.
+            log.Log(LogLevel.Information, third);
+
+            Assert.True(File.Exists(backup));
+            string backupText = File.ReadAllText(backup);
+            Assert.Contains(first, backupText);
+            Assert.Contains(second, backupText);
+            string activeText = File.ReadAllText(path);
+            Assert.Contains(third, activeText);
+            Assert.DoesNotContain(first, activeText);
+            Assert.Empty(log.BufferedEntries);
+        }
+
+        [Fact]
+        public void Log_RotationKeepsOnlyOneBackup()
+        {
+            FileLogService log = Create(maximumFileSizeBytes: 200);
+            string backup = Path.Combine(_root, "xnative.1.log");
+            string first = new string('a', 100);
+            string third = new string('c', 100);
+            string fifth = new string('e', 100);
+
+            log.Log(LogLevel.Information, first);
+            log.Log(LogLevel.Information, new string('b', 100));
+            log.Log(LogLevel.Information, third);
+            log.Log(LogLevel.Information, new string('d', 100));
+            log.Log(LogLevel.Information, fifth);
+
+            // Two rolls happened; exactly the active file and one
+            // backup exist, and the backup holds the second
+            // generation (third entry), not the first.
+            Assert.Equal(2, Directory.GetFiles(_root).Length);
+            string backupText = File.ReadAllText(backup);
+            Assert.Contains(third, backupText);
+            Assert.DoesNotContain(first, backupText);
+            Assert.Contains(fifth, File.ReadAllText(Path.Combine(_root, "xnative.log")));
+        }
+
+        [Fact]
+        public void Log_PreExistingOversizedFile_RollsOnFirstWrite()
+        {
+            Directory.CreateDirectory(_root);
+            string path = Path.Combine(_root, "xnative.log");
+            string oldContent = new string('o', 500);
+            File.WriteAllText(path, oldContent);
+            FileLogService log = Create(maximumFileSizeBytes: 200);
+
+            log.Log(LogLevel.Information, "fresh entry");
+
+            string backupText = File.ReadAllText(Path.Combine(_root, "xnative.1.log"));
+            Assert.Contains(oldContent, backupText);
+            string activeText = File.ReadAllText(path);
+            Assert.Contains("fresh entry", activeText);
+            Assert.DoesNotContain(oldContent, activeText);
+        }
+
+        [Fact]
+        public void Log_DoesNotRotate_WhenMaximumSizeIsZero()
+        {
+            FileLogService log = Create(maximumFileSizeBytes: 0);
+
+            log.Log(LogLevel.Information, new string('a', 500));
+            log.Log(LogLevel.Information, new string('b', 500));
+
+            Assert.False(File.Exists(Path.Combine(_root, "xnative.1.log")));
+            Assert.Single(Directory.GetFiles(_root));
         }
 
         [Fact]
