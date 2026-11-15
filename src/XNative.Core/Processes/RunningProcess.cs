@@ -16,6 +16,8 @@ namespace XNative.Core.Processes
         /// <param name="startTimeUtc">When the process started, in UTC.</param>
         /// <param name="hasExited">Whether the process has already exited.</param>
         /// <param name="exitCode">The exit code when the process has exited, otherwise <c>null</c>.</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="fileName"/> is null.</exception>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="fileName"/> is empty.</exception>
         public RunningProcess(int id, string fileName, DateTime startTimeUtc, bool hasExited, int? exitCode)
         {
             Id = id;
@@ -23,6 +25,9 @@ namespace XNative.Core.Processes
             StartTimeUtc = startTimeUtc;
             HasExited = hasExited;
             ExitCode = exitCode;
+
+            if (string.IsNullOrWhiteSpace(FileName))
+                throw new ArgumentException("FileName cannot be empty.", nameof(fileName));
         }
 
         /// <summary>

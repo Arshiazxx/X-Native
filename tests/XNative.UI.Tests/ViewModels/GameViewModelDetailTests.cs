@@ -10,14 +10,15 @@ namespace XNative.UI.Tests.ViewModels
         private static GameInfo MakeGame(
             GameMetadata? metadata = null,
             ProcessorArchitecture architecture = ProcessorArchitecture.Unknown,
-            string? launchArguments = null)
+            string? launchArguments = null,
+            ExecutableType executableType = ExecutableType.WindowsExecutable)
         {
             return new GameInfo(
                 "detail-id",
                 "Detail Game",
                 @"C:\Games\Detail\game.exe",
                 @"C:\Games\Detail",
-                ExecutableType.WindowsExecutable,
+                executableType,
                 metadata,
                 architecture,
                 launchArguments);
@@ -87,8 +88,31 @@ namespace XNative.UI.Tests.ViewModels
             var viewModel = new GameViewModel(MakeGame(architecture: ProcessorArchitecture.X64));
 
             Assert.Contains("Path: C:\\Games\\Detail\\game.exe", viewModel.DetailText);
-            Assert.Contains("Runner: wine", viewModel.DetailText);
+            Assert.Contains("Runner: wine (research)", viewModel.DetailText);
             Assert.Contains("Architecture: x64", viewModel.DetailText);
+        }
+
+        [Theory]
+        [InlineData(ExecutableType.WindowsExecutable, "wine (research)")]
+        [InlineData(ExecutableType.UwpApplication, "uwp")]
+        [InlineData(ExecutableType.Unknown, "unknown")]
+        public void Runner_MapsExecutableType(ExecutableType executableType, string expected)
+        {
+            var viewModel = new GameViewModel(MakeGame(executableType: executableType));
+
+            Assert.Equal(expected, viewModel.Runner);
+        }
+
+        [Fact]
+        public void Runner_ForWindowsExecutable_IsTheWineResearchLabel()
+        {
+            // Pins the honest label (audit P2-17): a Windows executable
+            // must not be presented as having a working "wine" runner;
+            // the label matches WineCompatibilityLayer.DisplayName.
+            var viewModel = new GameViewModel(MakeGame());
+
+            Assert.Equal("wine (research)", viewModel.Runner);
+            Assert.Equal("Detail Game (wine (research))", viewModel.DisplayText);
         }
     }
 }

@@ -92,11 +92,14 @@ namespace XNative.UI.ViewModels
         };
 
         /// <summary>
-        /// The runner identifier (e.g., "wine", "uwp", "native").
+        /// The runner label (e.g., "wine (research)", "uwp", "unknown").
+        /// Windows executables are labelled "wine (research)" to match
+        /// <c>WineCompatibilityLayer.DisplayName</c> and to make clear the
+        /// Wine path is research-stage, not a working runner.
         /// </summary>
         public string Runner => _gameInfo.ExecutableType switch
         {
-            ExecutableType.WindowsExecutable => "wine",
+            ExecutableType.WindowsExecutable => "wine (research)",
             ExecutableType.UwpApplication => "uwp",
             _ => "unknown"
         };
