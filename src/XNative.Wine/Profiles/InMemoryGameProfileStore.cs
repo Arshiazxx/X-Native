@@ -19,6 +19,11 @@ namespace XNative.Wine.Profiles
     /// other. IDs are compared case-insensitively, matching how the
     /// launch pipeline resolves a requested
     /// <see cref="LaunchOptions.ProfileId"/> against profile IDs.
+    /// Executable names must be unique too, under the same
+    /// normalisation name matching uses (any directory portion ignored,
+    /// compared case-insensitively): two profiles for the same
+    /// executable name are rejected instead of the later one being
+    /// silently unreachable by name matching.
     /// </remarks>
     public sealed class InMemoryGameProfileStore : IGameProfileStore
     {
@@ -39,7 +44,7 @@ namespace XNative.Wine.Profiles
         /// </summary>
         /// <param name="profiles">The profiles the store knows about.</param>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="profiles"/> or one of its entries is <c>null</c>.</exception>
-        /// <exception cref="ArgumentException">Thrown when two profiles share the same ID, compared case-insensitively.</exception>
+        /// <exception cref="ArgumentException">Thrown when two profiles share the same ID, compared case-insensitively, or the same executable name, compared case-insensitively and ignoring any directory portion.</exception>
         public InMemoryGameProfileStore(IEnumerable<GameProfile> profiles)
         {
             if (profiles == null)
@@ -49,6 +54,7 @@ namespace XNative.Wine.Profiles
 
             _profiles = new List<GameProfile>();
             var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seenExecutableNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (GameProfile profile in profiles)
             {
                 if (profile == null)
@@ -61,6 +67,15 @@ namespace XNative.Wine.Profiles
                     throw new ArgumentException(
                         "Duplicate profile ID '" + profile.Id + "'. Profile IDs must be unique " +
                         "(compared case-insensitively); a duplicate would silently shadow the earlier profile.",
+                        nameof(profiles));
+                }
+
+                if (!seenExecutableNames.Add(GetFileName(profile.ExecutableName)))
+                {
+                    throw new ArgumentException(
+                        "Duplicate executable name '" + profile.ExecutableName + "'. Executable names must be unique " +
+                        "(compared case-insensitively, ignoring any directory portion); a duplicate would " +
+                        "silently shadow the earlier profile in name matching.",
                         nameof(profiles));
                 }
 

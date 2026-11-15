@@ -204,6 +204,49 @@ namespace XNative.Wine.Tests.Profiles
         }
 
         [Fact]
+        public void InMemory_Constructor_ThrowsOnDuplicateExecutableNames()
+        {
+            var profiles = new[]
+            {
+                new GameProfile("a", "game.exe", CompatibilityRating.Playable),
+                new GameProfile("b", "game.exe", CompatibilityRating.Broken),
+            };
+
+            ArgumentException exception = Assert.Throws<ArgumentException>(() => new InMemoryGameProfileStore(profiles));
+            Assert.Contains("game.exe", exception.Message);
+        }
+
+        [Fact]
+        public void InMemory_Constructor_ThrowsOnExecutableNamesDifferingOnlyByCase()
+        {
+            // Name matching is case-insensitive, so executable names that
+            // differ only by case would collide at lookup time and must
+            // count as duplicates, exactly like profile IDs.
+            var profiles = new[]
+            {
+                new GameProfile("a", "Game.exe", CompatibilityRating.Playable),
+                new GameProfile("b", "game.exe", CompatibilityRating.Broken),
+            };
+
+            Assert.Throws<ArgumentException>(() => new InMemoryGameProfileStore(profiles));
+        }
+
+        [Fact]
+        public void InMemory_Constructor_ThrowsOnExecutableNamesDifferingOnlyByDirectory()
+        {
+            // Name matching strips any directory portion from the
+            // profile's executable name, so a directory-prefixed entry
+            // names the same executable as the bare file name.
+            var profiles = new[]
+            {
+                new GameProfile("a", @"C:\Games\game.exe", CompatibilityRating.Playable),
+                new GameProfile("b", "game.exe", CompatibilityRating.Broken),
+            };
+
+            Assert.Throws<ArgumentException>(() => new InMemoryGameProfileStore(profiles));
+        }
+
+        [Fact]
         public void Json_DuplicateProfileIds_ThrowsInvalidDataException()
         {
             const string json = @"[
@@ -224,6 +267,65 @@ namespace XNative.Wine.Tests.Profiles
             ]";
 
             Assert.Throws<InvalidDataException>(() => new JsonGameProfileStore(json));
+        }
+
+        [Fact]
+        public void Json_DuplicateExecutableNames_ThrowsInvalidDataException()
+        {
+            const string json = @"[
+              { ""id"": ""a"", ""executableName"": ""game.exe"", ""rating"": ""Playable"" },
+              { ""id"": ""b"", ""executableName"": ""game.exe"", ""rating"": ""Broken"" }
+            ]";
+
+            InvalidDataException exception = Assert.Throws<InvalidDataException>(() => new JsonGameProfileStore(json));
+            Assert.Contains("game.exe", exception.Message);
+        }
+
+        [Fact]
+        public void Json_ExecutableNamesDifferingOnlyByCase_ThrowsInvalidDataException()
+        {
+            const string json = @"[
+              { ""id"": ""a"", ""executableName"": ""Game.exe"", ""rating"": ""Playable"" },
+              { ""id"": ""b"", ""executableName"": ""game.exe"", ""rating"": ""Broken"" }
+            ]";
+
+            Assert.Throws<InvalidDataException>(() => new JsonGameProfileStore(json));
+        }
+
+        [Fact]
+        public void Json_ExecutableNamesDifferingOnlyByDirectory_ThrowsInvalidDataException()
+        {
+            const string json = @"[
+              { ""id"": ""a"", ""executableName"": ""C:\\Games\\game.exe"", ""rating"": ""Playable"" },
+              { ""id"": ""b"", ""executableName"": ""game.exe"", ""rating"": ""Broken"" }
+            ]";
+
+            Assert.Throws<InvalidDataException>(() => new JsonGameProfileStore(json));
+        }
+
+        [Fact]
+        public void Json_Profiles_RemainRetrievableById_AndMatchByName()
+        {
+            // The duplicate-name validation must not disturb the two
+            // lookup paths: resolution by profile ID (how the launch
+            // pipeline honours LaunchOptions.ProfileId, scanning the
+            // loaded profiles case-insensitively) and matching by bare
+            // executable name, including for a profile whose stored
+            // name carries a directory portion.
+            const string json = @"[
+              { ""id"": ""a"", ""executableName"": ""C:\\Games\\game.exe"", ""rating"": ""Playable"" },
+              { ""id"": ""b"", ""executableName"": ""other.exe"", ""rating"": ""Broken"" }
+            ]";
+
+            var store = new JsonGameProfileStore(json);
+
+            GameProfile byId = store.GetProfiles().Single(
+                p => string.Equals(p.Id, "B", StringComparison.OrdinalIgnoreCase));
+            Assert.Equal("other.exe", byId.ExecutableName);
+
+            GameProfile? byName = store.FindForGame(CreateGame());
+            Assert.NotNull(byName);
+            Assert.Equal("a", byName!.Id);
         }
 
         [Theory]

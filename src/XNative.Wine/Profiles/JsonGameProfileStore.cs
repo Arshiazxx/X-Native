@@ -20,14 +20,18 @@ namespace XNative.Wine.Profiles
     /// A malformed database is loud, never silently empty: invalid JSON,
     /// a non-array root, a missing <c>id</c> / <c>executableName</c> /
     /// <c>rating</c>, an empty or whitespace <c>id</c>, a duplicated
-    /// <c>id</c>, or a rating that is not exactly one defined member
-    /// name (comma-joined and numeric forms count as unknown) all throw
+    /// <c>id</c>, a duplicated <c>executableName</c>, or a rating that is
+    /// not exactly one defined member name (comma-joined and numeric
+    /// forms count as unknown) all throw
     /// <see cref="InvalidDataException"/> at load time. Silently treating
     /// a broken compatibility database as "no profiles" would hide data
     /// loss and make known-broken games look merely untested, and a
-    /// duplicated ID would silently shadow the earlier profile. IDs are
-    /// compared case-insensitively, matching how the launch pipeline
-    /// resolves a requested profile ID.
+    /// duplicated ID or executable name would silently shadow the
+    /// earlier profile. IDs are compared case-insensitively, matching
+    /// how the launch pipeline resolves a requested profile ID, and
+    /// executable names are compared case-insensitively with any
+    /// directory portion ignored, matching how profiles are looked up
+    /// by name.
     /// </remarks>
     public sealed class JsonGameProfileStore : IGameProfileStore
     {
@@ -149,6 +153,7 @@ namespace XNative.Wine.Profiles
 
                 var profiles = new List<GameProfile>();
                 var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var seenExecutableNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 int index = 0;
                 foreach (JsonElement element in document.RootElement.EnumerateArray())
                 {
@@ -159,6 +164,15 @@ namespace XNative.Wine.Profiles
                             "Compatibility profile at index " + index + " duplicates the profile ID '" + profile.Id +
                             "'. Profile IDs must be unique (compared case-insensitively); " +
                             "a duplicate would silently shadow the earlier profile.");
+                    }
+
+                    if (!seenExecutableNames.Add(InMemoryGameProfileStore.GetFileName(profile.ExecutableName)))
+                    {
+                        throw new InvalidDataException(
+                            "Compatibility profile at index " + index + " duplicates the executable name '" + profile.ExecutableName +
+                            "'. Executable names must be unique (compared case-insensitively, " +
+                            "ignoring any directory portion); a duplicate would silently shadow " +
+                            "the earlier profile in name matching.");
                     }
 
                     profiles.Add(profile);
