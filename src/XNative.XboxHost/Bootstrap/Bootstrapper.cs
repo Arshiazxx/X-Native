@@ -86,10 +86,22 @@ namespace XNative.XboxHost.Bootstrap
                 _provider = provider;
                 return StartupReport.Succeeded(provider);
             }
-            catch (InvalidOperationException exception)
+            catch (Exception exception)
             {
                 return StartupReport.Failed(exception);
             }
+        }
+
+        /// <summary>
+        /// Disposes the current service provider and clears the started
+        /// state, so that <see cref="Start"/> can be called again. This
+        /// is test and support tooling: the running application never
+        /// calls it, because a UWP host starts exactly once per process.
+        /// </summary>
+        public static void Reset()
+        {
+            _provider?.Dispose();
+            _provider = null;
         }
 
         /// <summary>

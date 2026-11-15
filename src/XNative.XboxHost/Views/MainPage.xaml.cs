@@ -4,6 +4,8 @@ using Windows.ApplicationModel;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Navigation;
+using XNative.Core.Abstractions;
+using XNative.Core.Games;
 using XNative.UI.ViewModels;
 using XNative.XboxHost.Bootstrap;
 
@@ -34,6 +36,13 @@ namespace XNative.XboxHost.Views
         /// </summary>
         public GameLibraryViewModel? GameLibrary { get; private set; }
 
+        /// <summary>
+        /// Game currently selected in the games list, bound two-way
+        /// from the XAML. Read by the launch handler; it stays
+        /// <c>null</c> until the user picks a game.
+        /// </summary>
+        public GameViewModel? SelectedGame { get; set; }
+
         /// <inheritdoc />
         protected override void OnNavigatedTo(NavigationEventArgs e)
         {
@@ -55,6 +64,53 @@ namespace XNative.XboxHost.Views
             GameLibrary = Bootstrapper.Resolve<GameLibraryViewModel>();
 
             Bindings.Update();
+        }
+
+        private async void OnLaunchButtonClick(object sender, RoutedEventArgs e)
+        {
+            GameViewModel? selected = SelectedGame;
+
+            if (selected == null)
+            {
+                LaunchStatusText.Text = "Select a game to launch.";
+                return;
+            }
+
+            try
+            {
+                IGameCatalog catalog = Bootstrapper.Resolve<IGameCatalog>();
+                GameInfo? game = await catalog.FindByExecutablePathAsync(selected.ExecutablePath);
+
+                if (game == null)
+                {
+                    LaunchStatusText.Text = "The selected game is no longer in the catalog. Scan again.";
+                    return;
+                }
+
+                IGameRunner runner = Bootstrapper.Resolve<IGameRunner>();
+                LaunchResult result = await runner.LaunchAsync(game);
+
+                if (result.Success)
+                {
+                    LaunchStatusText.Text = string.IsNullOrWhiteSpace(result.Message)
+                        ? "Launched " + game.Name + "."
+                        : result.Message!;
+                }
+                else
+                {
+                    LaunchStatusText.Text = string.IsNullOrWhiteSpace(result.Message)
+                        ? "Launch failed for " + game.Name + "."
+                        : result.Message!;
+                    ErrorText.Text = LaunchStatusText.Text;
+                    ErrorText.Visibility = Visibility.Visible;
+                }
+            }
+            catch (Exception exception)
+            {
+                LaunchStatusText.Text = "Launch failed: " + exception.Message;
+                ErrorText.Text = LaunchStatusText.Text;
+                ErrorText.Visibility = Visibility.Visible;
+            }
         }
 
         private void ShowError(Exception? error)
