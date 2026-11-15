@@ -48,7 +48,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   behaving as empty. `WineCompatibilityLayer.CanRun` predicts a game's
   rating from its profile (`Unknown` when the game has no profile). The default module
   registration ships an empty store; no curated profile database ships
-  yet.
+  yet (the `examples/` pack's three-profile database is a standalone
+  sample, not wired into any registration).
 - Launcher features in the UI view models: `GameLibraryViewModel` gained
   a filtered/sorted `VisibleGames` projection (`SearchText` substring
   filter, `SortMode` name ordering), selection preserved across rescans
@@ -282,6 +283,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   second activation while a launch was in flight could start a
   duplicate launch. It now ignores activations until the current
   launch finishes, matching `GameLibraryViewModel`'s launch path.
+- The Xbox main page's game list bound the library's raw game
+  collection and kept the selection on the page, so the view
+  model's filtered/sorted projection never reached the Xbox list
+  and its selection was not the one preserved across rescans. The
+  list now binds `VisibleGames` and the view model's
+  `SelectedGame`, so the projection and selection preservation
+  apply on the Xbox head as documented for the view model.
+- On Xbox, the app activated its window during prelaunch
+  activation, surfacing it before the user had launched anything.
+  The window is now activated only on a real launch; navigation
+  during prelaunch is unchanged.
 - The startup screen never listed modules a head registered beyond
   the shared set: `StartupViewModel` only walked the expected module
   order, so the Xbox host module (`xnative.xboxhost`) was invisible
