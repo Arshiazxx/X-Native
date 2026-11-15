@@ -173,9 +173,21 @@ versioned JSON (storage key `settings.json`, format version 1) over
 `IStorageService`. Loading never throws on bad data: missing, unreadable,
 or invalid stored values — and any stored format version other than the
 one this build writes, including a newer one — yield the defaults, and
-corrupt data is left untouched for diagnostics. `SettingsOptionsApplier`
-copies a loaded `AppSettings` onto the catalog and log options objects
-(only a non-null `GamesRootPath` overrides the catalog root).
+corrupt data is left untouched for diagnostics. The stored minimum log
+level is parsed strictly: only an exact defined `LogLevel` member name
+(case-insensitive) is accepted, so a numeric string or a comma-joined
+composite such as `"Debug, Information"` falls back to the default for
+that field only instead of being combined into a different level.
+`ExecutablePatterns` is bounded by validation: between one and
+`AppSettings.MaxExecutablePatterns` (32) entries, none blank and none
+containing a directory separator — patterns name files, not paths. A
+bare `*` is accepted deliberately: it costs the same single enumeration
+per directory as any other pattern, and PE inspection decides what is
+actually a game. `SettingsOptionsApplier` copies a loaded `AppSettings`
+onto the catalog and log options objects (only a non-null
+`GamesRootPath` overrides the catalog root); it runs
+`AppSettings.Validate()` first and applies nothing when validation
+fails, so an invalid instance cannot flow into the services.
 
 ### XNative.Graphics
 
@@ -357,7 +369,15 @@ On top of the composition root sits a small diagnostic CLI (`Cli` /
 | `help` | Prints the usage text. |
 
 Exit codes are `0` for success, `1` for failure (missing file, invalid
-PE, failed launch, unexpected error), and `2` for a usage error.
+PE, failed launch, a nonexistent games root, unexpected error), and
+`2` for a usage error. The games-root failure applies only to a path
+supplied explicitly on the command line: `scan` and `info` (including
+the legacy single-path form of `info`) print
+`Error: Games root not found: <path>` and exit `1` when the given path
+does not exist, so a typo cannot masquerade as an empty library. With
+no path argument — the platform default root or the settings file's
+root — a missing root keeps the catalog's empty-library behaviour and
+exits `0`.
 
 Every command that builds the composition loads the persisted settings
 first. Because options are baked into the platform singletons at first

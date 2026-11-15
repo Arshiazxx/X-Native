@@ -77,7 +77,11 @@ dotnet run --project src/XNative.App -c Release -- help
   then the settings file, then the platform default.
 
 Exit codes are `0` for success, `1` for failure, and `2` for a usage
-error.
+error. One asymmetry to know when smoke-testing: `info` or `scan` given
+an explicit path that does not exist fail with exit `1`
+(`Error: Games root not found: …`) rather than reporting an empty
+library; with no path argument, a missing default root still reports
+an empty library and exits `0`.
 
 The repo ships a sample pack for trying this out: [examples/](../examples)
 contains three example game folders under `examples/games`

@@ -266,6 +266,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   second activation while a launch was in flight could start a
   duplicate launch. It now ignores activations until the current
   launch finishes, matching `GameLibraryViewModel`'s launch path.
+- Loaded settings were applied to the catalog and log options without
+  the validation `AppSettings` documents, so an instance carrying a
+  `null` or unbounded `ExecutablePatterns` list flowed straight into
+  the catalog. `SettingsOptionsApplier` now runs
+  `AppSettings.Validate()` first and applies nothing when it fails, and
+  validation itself bounds the pattern list: at most 32 entries
+  (`AppSettings.MaxExecutablePatterns`), none blank, and none
+  containing a directory separator, since each pattern costs one
+  directory enumeration per scanned directory and patterns name files,
+  not paths. A bare `*` stays legal — it costs the same single
+  enumeration as any other pattern.
+- `JsonSettingsService` parsed the stored log level with
+  `Enum.TryParse`, which also accepts numeric strings and comma-joined
+  composites: `"Debug, Information"` was silently OR-ed into
+  `Warning`. Only an exact defined `LogLevel` member name
+  (case-insensitive) is now accepted; anything else falls back to the
+  default for that field only.
+- `scan` and `info` reported success (exit `0`, an empty game list)
+  for an explicitly supplied games root that does not exist, so a typo
+  in the path looked exactly like an empty library. A missing explicit
+  path — including the legacy single-path form of `info` — now prints
+  `Error: Games root not found: <path>` and exits `1`; with no path
+  argument, a missing default or settings-supplied root keeps the
+  empty-library behaviour.
 
 ### Notes
 
