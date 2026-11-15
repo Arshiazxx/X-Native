@@ -379,7 +379,7 @@ On top of the composition root sits a small diagnostic CLI (`Cli` /
 | `scan [path]` | Lists what a catalog scan of the games root finds, with architecture, executable type, and path. |
 | `inspect <exe>` | Prints one executable's PE header information (validity, architecture, DLL, managed, subsystem, section count). |
 | `launch <id-or-path>` | Resolves a game by catalog id or executable path (an existing file outside the catalog becomes an ad-hoc entry, classified on the spot) and sends it through `IGameRunner`, printing the structured result. |
-| `settings show` | Prints the effective settings read back from the composed options, including which source supplied the games root. |
+| `settings show` | Prints the effective settings read back from the composed options, including which source supplied the games root, plus a `Source:` line for the stored settings themselves — loaded, absent, or rejected with the rejection category — when the settings service reports a load outcome. |
 | `settings reset` | Discards the persisted settings and restores the defaults (persisted, so the reset survives a restart). |
 | `help` | Prints the usage text. |
 
@@ -404,9 +404,18 @@ options. The games-root precedence, highest first, is: an explicit
 command-line path, then the persisted `AppSettings.GamesRootPath`, then
 the platform module default. A settings load that itself fails never
 stops the application: the defaults are substituted and a one-line
-warning is printed to standard error. This makes the whole wiring —
-settings included — verifiable from the command line, outside the Xbox
-environment.
+warning is printed to standard error. The load result also carries the
+stored settings' outcome (`StoredOutcome`) when the settings service
+reports one through `ISettingsLoadOutcomeProvider`: whether the stored
+settings were loaded, were absent, or were rejected, with the rejection
+category (corrupt data, unsupported version, invalid values, read
+failure). It is `null` when the service does not report an outcome, or
+when the load fell back before an outcome could be known — the
+distinction matters because the substituted defaults are identical in
+the absent and rejected cases. Only `settings show` renders it (the
+`Source:` line); the other commands ignore it. This makes the whole
+wiring — settings included — verifiable from the command line, outside
+the Xbox environment.
 
 ### XNative.XboxHost
 

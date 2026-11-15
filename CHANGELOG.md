@@ -103,6 +103,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `settings show` prints the effective values (including which source won
   the games root) and `settings reset` restores the defaults. Precedence
   is command-line path, then the settings file, then the platform default.
+- `settings show` now reports where the effective settings came from: a
+  `Source:` line distinguishes a loaded settings file from no file at
+  all and from a file that was rejected — not valid settings data, an
+  unsupported format version, stored values failing validation, or
+  unreadable — so a corrupt or unsupported settings file is no longer
+  indistinguishable from never having stored one. The settings service
+  reports the load outcome as a side channel
+  (`ISettingsLoadOutcomeProvider`), carried on the bootstrap result as
+  `StoredOutcome`; the command still exits `0` in every case.
 - A diagnostic command line in the console head: `info` (the default —
   modules and device information), `scan` (catalogue a folder),
   `inspect <exe>` (full PE details for one executable), and

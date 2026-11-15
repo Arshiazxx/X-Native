@@ -74,7 +74,15 @@ dotnet run --project src/XNative.App -c Release -- help
   minimum log level, scan depth, executable patterns) including which
   source won the games root; `settings reset` restores the defaults. The
   head loads settings before composing — precedence is command-line path,
-  then the settings file, then the platform default.
+  then the settings file, then the platform default. `settings show`
+  also leads with a `Source:` line for the stored settings themselves:
+  `Source: settings file` when a stored file was loaded,
+  `Source: defaults (no settings file found)` when none exists, or
+  `Source: defaults (settings file could not be used: …)` — with the
+  reason (not valid settings data, unsupported format version, stored
+  values failed validation, or could not be read) — when a stored file
+  was rejected, so a rejected file no longer looks identical to no file
+  at all. The command still exits `0` in every case.
 
 Exit codes are `0` for success, `1` for failure, and `2` for a usage
 error. One asymmetry to know when smoke-testing: `info` or `scan` given
