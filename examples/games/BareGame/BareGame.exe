@@ -1,0 +1,12 @@
+PLACEHOLDER — this is not a real game executable.
+
+This plain-text file stands in for the real BareGame.exe. This folder
+deliberately has no game.json manifest: it shows the bare-executable
+layout the catalog's scanner picks up on its own. Any file matching the
+catalog's executable patterns (*.exe by default) becomes a game entry
+named after the file, with no metadata.
+
+Replace this file with the real BareGame.exe to use the example for
+real. Until then the catalog still lists the game: a file that is not a
+valid PE image is catalogued as a Windows executable with unknown
+architecture rather than being dropped.

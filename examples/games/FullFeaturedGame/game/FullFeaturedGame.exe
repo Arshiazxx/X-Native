@@ -1,0 +1,12 @@
+PLACEHOLDER — this is not a real game executable.
+
+This plain-text file stands in for the real FullFeaturedGame.exe so the
+example folder has the layout X-Native's catalog expects: the manifest
+(game.json, one folder up) names this file as "game/FullFeaturedGame.exe",
+and the catalog only catalogues a manifest game when the named executable
+actually exists on disk.
+
+Replace this file with the real FullFeaturedGame.exe to use the example
+for real. Until then the catalog still lists the game: a file that is not
+a valid PE image is catalogued as a Windows executable with unknown
+architecture rather than being dropped.

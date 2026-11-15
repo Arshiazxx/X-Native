@@ -1,0 +1,1 @@
+{"arguments":"-windowed -skipintro","description":"A full v2 manifest example that uses every field the catalog reads.","executable":"game/FullFeaturedGame.exe","icon":"icon.png","name":"Full Featured Game","publisher":"Example Studio","version":"1.2.3","workingDirectory":"game"}
