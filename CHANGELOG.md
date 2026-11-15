@@ -76,6 +76,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documentation for the `game.json` manifest format, for building the
   project, and for the platform constraints that shape the compatibility
   work.
+- PE classification during catalog scans: every catalogued executable is
+  inspected through `IFileSystemService.OpenRead`, reading at most the
+  first 64 KiB, and a valid PE image populates the game's
+  `GameInfo.Architecture`. Files that are not valid PE images (or cannot
+  be read) are still catalogued with the historical defaults, so a scan
+  never fails because of one bad executable.
+- Input contracts and services: gamepad and keyboard state models
+  (`GamepadState` / `KeyboardState`, validated immutable snapshots) and
+  `IInputService`, with `ManualInputService` (thread-safe, fed by a host)
+  and `NullInputService` implementations, plus dead-zone and multi-source
+  state-merging helpers. On Xbox, a host feed polls
+  `Windows.Gaming.Input` at ~60 Hz into the shared manual service, so the
+  same input contracts serve both heads.
+- Graphics and plugin infrastructure behind the core contracts: a
+  `GraphicsBackendRegistry`, a capability-based `GraphicsBackendSelector`,
+  and a `NullGraphicsBackend`; and a plugin host with an in-memory
+  catalogue and a `PluginManager` that initialises plugins with failure
+  isolation (one failing plugin is reported, never fatal to the rest).
+- A persisted settings service: `AppSettings` (games root, minimum log
+  level, scan depth, executable patterns) with a `JsonSettingsService`
+  over `IStorageService` — a corrupt settings file falls back to defaults
+  instead of throwing — plus helpers that apply settings to the catalog
+  and logging configuration.
+- A diagnostic command line in the console head: `info` (the default —
+  modules and device information), `scan` (catalogue a folder),
+  `inspect <exe>` (full PE details for one executable), and
+  `launch <id-or-path>` (a structured launch result with honest non-zero
+  exit codes: 0 success, 1 launch failure, 2 usage error). A bare path
+  argument still works as before.
+- Xbox composition for the UWP sandbox: the platform module now offers a
+  core registration without the desktop process service, and the Xbox
+  host supplies its own `IProcessService` that honestly reports it cannot
+  start processes (`CanStartProcesses` is `false`; `StartAsync` throws
+  `PlatformNotSupportedException`). The bootstrapper accepts an optional
+  games-root override, a failed startup is retried on the next launch
+  instead of being cached forever, and launching from the main page now
+  passes the game's manifest launch arguments.
+- An `examples/` pack: three sample games (a v1 manifest game, a v2
+  manifest game using every catalogued field with a real icon, and a bare
+  executable with no manifest) and a three-profile compatibility database
+  (Playable / Starts / Broken). Tests pin the examples against the real
+  catalog and profile store so they cannot silently drift from the code.
+- An integration test suite covering composition roots, catalog
+  end-to-end scans, adversarial core models, and view-model behaviour.
+  The solution now references all eight test projects, and CI also tests
+  each project explicitly and fails if a test project exists that is
+  covered by neither the solution nor the CI list.
+- A `global.json` pinning the .NET 8 SDK band (8.0.100,
+  `latestFeature` roll-forward) so builds do not drift with newer SDKs,
+  and a `.gitattributes` fixing line endings per file type.
 
 ### Changed
 
@@ -83,6 +133,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   disk, standalone PE analysis, and the launcher UI — and that no game
   runs through X-Native yet. Its roadmap now marks the foundation items
   that the code backs as done.
+- `LaunchOptions.Default` now returns a fresh instance on every access.
+  It was previously a shared mutable singleton, so one caller changing
+  the "default" options silently changed them for everyone.
+- Core model validation is consistent: `DeviceInfo` and
+  `RunningProcess` now reject empty or whitespace strings exactly like
+  `GameInfo` and `GameProfile` already did, and `DeviceInfo.IsXbox`
+  matches only the Xbox device family itself (`Windows.Xbox`, `Xbox`,
+  or `Windows.Xbox.*`) instead of any family string containing "Xbox".
+- Windows executables are labelled "wine (research)" in the launcher UI,
+  matching the compatibility layer's own display name, instead of the
+  plain "wine" label that overstated what exists.
+- The view models' documentation now states their thread-affinity
+  contract explicitly: collections are mutated and notifications raised
+  on the caller's thread with no internal synchronisation, so a host
+  must call them from its UI thread.
+- The build and contributing guides were corrected against the current
+  tree (SDK pin, the full eight-project test suite, and the console
+  head's commands), and the GitHub templates and CI comments now match
+  the test setup they describe.
+
+### Fixed
+
+- `SystemProcessService.StopAsync` no longer orphans a tracked process
+  when its grace-period wait is cancelled: the entry is removed only
+  after the process has exited or been killed, so the process stays
+  stoppable. Exited processes are pruned on start, and a process that
+  exited on its own is reported once (with its exit code) and then
+  pruned instead of lingering forever.
+- `LocalGameCatalog.Dispose` racing an in-flight refresh could throw
+  `ObjectDisposedException` out of `RefreshAsync`; disposal is now
+  idempotent and thread-safe, and a refresh that loses the race returns
+  quietly without corrupting the published snapshot.
+- `PeFileInspector.Inspect(Stream)` read the entire stream into memory
+  (twice) with no bound; it now reads at most a 1 MiB header window —
+  far more than any PE header needs — and never closes the caller's
+  stream.
+- The profile stores silently accepted duplicate profile IDs, so a later
+  profile shadowed an earlier one. The JSON store now throws
+  `InvalidDataException` naming the duplicated ID, and the in-memory
+  store throws `ArgumentException`; both also reject empty or whitespace
+  profile IDs.
+- `FileLogService` accepted any log `FileName`, including path
+  separators and `..` traversal; it now validates the name at
+  construction with the same rules as storage keys. `FileStorageService`
+  keys additionally reject reserved DOS device names (`CON`, `NUL`,
+  `COM1`, …) and names ending in a dot or space, which alias devices or
+  fail unpredictably on Windows.
+- `RelayCommand.Execute` ignored `CanExecute` and ran the delegate even
+  when the command was disabled; it is now a no-op when `CanExecute`
+  returns `false`, matching `AsyncRelayCommand`.
+- The launch pipeline silently ignored a supplied `WorkingDirectory` or
+  `EnvironmentVariables`; it now logs a warning naming each option as
+  not applied by the current compatibility backend (the launch result
+  itself is unchanged).
 
 ### Notes
 
