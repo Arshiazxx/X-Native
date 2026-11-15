@@ -9,6 +9,12 @@ body:
         Thanks for reporting. Please be precise about what you ran and what
         happened — "it doesn't work" is hard to act on, a build log or a
         startup-screen result is easy to act on.
+
+        If the problem is in the managed libraries, the console head's
+        output helps: `dotnet run --project src/XNative.App -c Release --
+        info` (or `scan`, `inspect <exe>`, `launch <id|path>`) — see
+        "Smoke check: the console head" in docs/building.md. Paste the
+        relevant output under "Logs or output" below.
   - type: textarea
     id: what-happened
     attributes:

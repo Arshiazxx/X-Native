@@ -10,12 +10,11 @@ permissions:
 
 # Every test project in the tree, by csproj path.
 #
-# X-Native.sln does not reference all of them (XNative.App.Tests,
-# XNative.Graphics.Tests, XNative.Plugins.Tests and
-# XNative.Integration.Tests are missing), so a solution-level
-# `dotnet test` silently skips those projects. The build job below
+# X-Native.sln references all of them, so a solution-level
+# `dotnet test` runs the whole suite. The build job below still
 # restores, builds and tests each project explicitly from this list,
-# and the test-coverage-guard job fails CI if a tests/**/*.csproj
+# which keeps this list the source of truth for the full set, and
+# the test-coverage-guard job fails CI if a tests/**/*.csproj
 # ever exists that is in neither the solution nor this list.
 # Keep this list in sync when adding a test project.
 env:
@@ -59,11 +58,10 @@ jobs:
         run: dotnet build X-Native.sln -c Release --no-restore
 
       # Test projects are restored, built and tested individually by
-      # csproj path (see TEST_PROJECTS above): the solution does not
-      # reference all of them, so `dotnet test X-Native.sln` alone
-      # would silently skip the missing ones. `shell: bash` is used so
-      # the same loops run on the Windows matrix leg (Git Bash) and on
-      # Ubuntu.
+      # csproj path (see TEST_PROJECTS above), so CI exercises exactly
+      # the projects in the list even if the solution file drifts.
+      # `shell: bash` is used so the same loops run on the Windows
+      # matrix leg (Git Bash) and on Ubuntu.
       - name: Restore test projects
         shell: bash
         run: |

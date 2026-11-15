@@ -62,7 +62,7 @@ body:
       label: Rating
       description: Use the project's rating scale. When in doubt, pick the lower rating.
       options:
-        - Doesn't start
+        - Broken
         - Starts
         - Playable
         - Perfect
