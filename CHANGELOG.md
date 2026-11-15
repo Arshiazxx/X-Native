@@ -99,6 +99,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   over `IStorageService` — a corrupt settings file falls back to defaults
   instead of throwing — plus helpers that apply settings to the catalog
   and logging configuration.
+- The console head now loads the persisted settings before composing:
+  `settings show` prints the effective values (including which source won
+  the games root) and `settings reset` restores the defaults. Precedence
+  is command-line path, then the settings file, then the platform default.
 - A diagnostic command line in the console head: `info` (the default —
   modules and device information), `scan` (catalogue a folder),
   `inspect <exe>` (full PE details for one executable), and
