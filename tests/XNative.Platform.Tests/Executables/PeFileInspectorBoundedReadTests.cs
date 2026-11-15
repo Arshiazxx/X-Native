@@ -8,9 +8,10 @@ namespace XNative.Platform.Tests.Executables
 {
     /// <summary>
     /// Tests for the bounded-read contract of
-    /// <see cref="PeFileInspector.Inspect(Stream)"/> (audit finding P1-3):
-    /// the overload must consume at most a 1 MiB header window, in a single
-    /// incrementally filled buffer, no matter how long the source stream is.
+    /// <see cref="PeFileInspector.Inspect(Stream)"/> (previously the stream
+    /// was read into memory unbounded): the overload must consume at most
+    /// a 1 MiB header window, in a single incrementally filled buffer, no
+    /// matter how long the source stream is.
     /// </summary>
     /// <remarks>
     /// The exact read semantics asserted here are the implementation's

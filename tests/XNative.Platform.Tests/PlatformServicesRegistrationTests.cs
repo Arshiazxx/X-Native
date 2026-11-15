@@ -26,7 +26,7 @@ namespace XNative.Platform.Tests
         [Fact]
         public void AddXNativePlatform_GameCatalogIsConstructible()
         {
-            // Regression test for the P0 bug: IGameCatalog depended on
+            // Regression test for the composition bug: IGameCatalog depended on
             // IFileSystemService, which previously had no implementation
             // or registration, so no composition root could build it.
             using ServiceProvider provider = new ServiceCollection()

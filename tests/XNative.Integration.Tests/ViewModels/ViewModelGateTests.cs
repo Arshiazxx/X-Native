@@ -124,11 +124,11 @@ namespace XNative.Integration.Tests.ViewModels
         public void Startup_Load_ReportsUiModuleWhenDescriptorIsPresent()
         {
             // Gate for the missing-module defect: UiModule registers a
-            // descriptor with id "xnative.ui", but StartupViewModel's
-            // ExpectedModuleOrder on base does not contain it, so the UI
-            // module is never reported on the startup screen — and if it
-            // failed to register, nobody would notice. The end state lists
-            // every registered module, including "xnative.ui".
+            // descriptor with id "xnative.ui", and StartupViewModel's
+            // ExpectedModuleOrder must contain it — if it did not, the UI
+            // module would never be reported on the startup screen, and if
+            // it failed to register, nobody would notice. The end state
+            // lists every registered module, including "xnative.ui".
             var modules = new IModuleDescriptor[]
             {
                 new CoreModuleDescriptor(),
@@ -161,9 +161,10 @@ namespace XNative.Integration.Tests.ViewModels
         public void RelayCommand_Execute_WhenCanExecuteIsFalse_MustNotRunDelegate()
         {
             // Gate: ICommand consumers (buttons) are not the only callers —
-            // Execute can be invoked programmatically, and on base it runs
-            // the delegate unconditionally, bypassing the CanExecute guard
-            // (for the scan command, that guard is the IsBusy check).
+            // Execute can be invoked programmatically, so it must honour
+            // the CanExecute guard itself rather than running the delegate
+            // unconditionally (for the scan command, that guard is the
+            // IsBusy check).
             bool ran = false;
             var command = new RelayCommand(_ => ran = true, _ => false);
 

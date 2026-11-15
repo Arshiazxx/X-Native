@@ -13,11 +13,12 @@ namespace XNative.Integration.Tests.Architecture
     /// Tests the implementation claims made by the table in
     /// docs/architecture.md ("Interface | Implemented by"). Each fact asserts
     /// that the named module assembly actually contains a public, concrete
-    /// implementation of the interface. On base (add7d6d) every claim except
-    /// IModuleDescriptor fails: the interfaces exist, the implementations do
-    /// not. IDeviceInfoService is excluded because its claimed implementer is
-    /// the application head (XNative.XboxHost), which this project does not
-    /// reference; its implementation does exist (UwpDeviceInfoService).
+    /// implementation of the interface: an interface shipped without an
+    /// implementation makes the documented claim false and fails the
+    /// matching fact. IDeviceInfoService is excluded because its claimed
+    /// implementer is the application head (XNative.XboxHost), which this
+    /// project does not reference; its implementation does exist
+    /// (UwpDeviceInfoService).
     /// </summary>
     public sealed class ArchitectureClaimsTests
     {
@@ -97,9 +98,10 @@ namespace XNative.Integration.Tests.Architecture
         [Fact]
         public void NoCoreAbstractionIsLeftAsAnEmptyInterface()
         {
-            // Regression gate for the pre-add7d6d state, where ILogService,
-            // IStorageService, IProcessService, ICompatibilityLayer,
-            // IGraphicsBackend and IPluginHost were declared with no members.
+            // Regression gate: ILogService, IStorageService,
+            // IProcessService, ICompatibilityLayer, IGraphicsBackend and
+            // IPluginHost must each declare the members their contracts
+            // promise — none of them may regress to an empty interface.
             // INavigationService lives in XNative.UI, not the core, and is
             // deliberately not covered here.
             Type[] abstractions = typeof(IModuleDescriptor).Assembly

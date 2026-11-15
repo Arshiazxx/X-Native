@@ -15,8 +15,7 @@ namespace XNative.Integration.Tests.Catalog
     /// in-memory file system: nested folders, a game.json manifest game,
     /// bare .exe games, manifest precedence, FindById round-trips, and the
     /// adversarial cases (path traversal, malformed manifests, unstable ids)
-    /// asserted as the CORRECT end state. AUDIT.md records which of these
-    /// fail on base (add7d6d) and why.
+    /// asserted as the CORRECT end state.
     /// </summary>
     public sealed class CatalogEndToEndTests
     {
@@ -149,12 +148,12 @@ namespace XNative.Integration.Tests.Catalog
         [Fact]
         public async Task TwoCatalogInstancesOverSameTree_ProduceIdenticalIds()
         {
-            // In-process stability probe. NOTE: on base this passes by luck
-            // of process lifetime — both instances live in the same process,
-            // so the randomized string.GetHashCode seed is shared. The ids
-            // still change between processes; see
-            // GameId_IsNotDerivedFromRandomizedStringGetHashCode and the
-            // AUDIT.md finding on LocalGameCatalog.GenerateId.
+            // In-process stability probe. Both instances live in the same
+            // process, so this test alone could not catch an id scheme
+            // derived from string.GetHashCode: the randomized per-process
+            // seed is shared here, so such ids would agree in-process yet
+            // change between processes. That cross-process case is what
+            // GameId_IsNotDerivedFromRandomizedStringGetHashCode pins.
             LocalGameCatalog first = CreateCatalog(BuildStandardTree(), Root);
             LocalGameCatalog second = CreateCatalog(BuildStandardTree(), Root);
 
@@ -173,13 +172,14 @@ namespace XNative.Integration.Tests.Catalog
         [Fact]
         public async Task GameId_IsNotDerivedFromRandomizedStringGetHashCode()
         {
-            // Gate for the id-stability defect: LocalGameCatalog.GenerateId
-            // on base builds the id from exePath.GetHashCode(). In .NET,
-            // string.GetHashCode() is randomized per process, so an id that
-            // matches that formula in this process is proof the unstable
-            // algorithm is still in use — saved ids, profiles and shortcuts
-            // keyed by game id break on every restart. A stable algorithm
-            // (e.g. a content hash of the path) will not match this formula.
+            // Gate for the id-stability defect: if LocalGameCatalog.GenerateId
+            // built the id from exePath.GetHashCode(), the id would be
+            // unstable — in .NET, string.GetHashCode() is randomized per
+            // process — so an id that matches that formula in this process
+            // is proof the unstable algorithm is in use: saved ids, profiles
+            // and shortcuts keyed by game id would break on every restart.
+            // A stable algorithm (e.g. a content hash of the path) will not
+            // match this formula.
             LocalGameCatalog catalog = CreateCatalog(BuildStandardTree(), Root);
 
             var games = await catalog.GetGamesAsync();
@@ -195,9 +195,10 @@ namespace XNative.Integration.Tests.Catalog
         {
             // Path traversal gate: a game.json dropped anywhere in the tree
             // must not be able to surface an executable from outside the
-            // catalog root. On base, Path.Combine(directory, executable)
-            // happily resolves "../.." and the outside exe is catalogued
-            // under the manifest's (attacker-chosen) display name.
+            // catalog root. Without the catalog's traversal guard,
+            // Path.Combine(directory, executable) would happily resolve
+            // "../.." and the outside exe would be catalogued under the
+            // manifest's (attacker-chosen) display name.
             string root = Root;
             string outsideExe = Path.GetFullPath(Path.Combine("xnative-it", "outside.exe"));
 
@@ -244,10 +245,10 @@ namespace XNative.Integration.Tests.Catalog
         public async Task SingleMalformedManifest_DoesNotAbortWholeScan()
         {
             // A manifest whose name is whitespace makes GameInfo's
-            // constructor throw ArgumentException. On base that exception is
-            // not among the ones LocalGameCatalog catches, so one bad
-            // game.json aborts the entire library scan. The gate: the scan
-            // completes and the healthy games are still listed.
+            // constructor throw ArgumentException. LocalGameCatalog must
+            // absorb that per-manifest failure — if it did not, one bad
+            // game.json would abort the entire library scan. The gate: the
+            // scan completes and the healthy games are still listed.
             string root = Root;
             var fs = new InMemoryFileSystemService();
             fs.AddFile(Path.Combine(root, "alpha", "alpha.exe"));

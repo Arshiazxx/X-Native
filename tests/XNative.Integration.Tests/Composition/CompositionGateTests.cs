@@ -12,11 +12,11 @@ namespace XNative.Integration.Tests.Composition
     /// <summary>
     /// The composition gate: the assertions in this class describe the CORRECT
     /// end state of the wiring, written against
-    /// <see cref="CompositionRoot.AddXNative"/> exactly the way the Xbox
-    /// Bootstrapper builds its container (ValidateOnBuild + ValidateScopes).
-    /// On the base commit (add7d6d) most of them fail — that is the point of
-    /// the gate. The QA AUDIT.md records the base failures with their exact
-    /// exception messages.
+    /// <see cref="CompositionRoot.AddXNative(IServiceCollection)"/>
+    /// exactly the way the Xbox Bootstrapper builds its container
+    /// (ValidateOnBuild + ValidateScopes).
+    /// A missing or inconsistent module registration fails here first —
+    /// that is the point of the gate.
     /// </summary>
     public sealed class CompositionGateTests
     {
@@ -53,9 +53,9 @@ namespace XNative.Integration.Tests.Composition
         {
             // Mirrors XNative.XboxHost.Bootstrap.Bootstrapper.Start(): with
             // ValidateOnBuild the container must be able to construct every
-            // registered singleton at startup. On base this throws an
-            // AggregateException rooted in LocalGameCatalog's unregistered
-            // IFileSystemService dependency.
+            // registered singleton at startup. A missing registration —
+            // LocalGameCatalog's IFileSystemService dependency, for
+            // example — surfaces here as an AggregateException.
             using ServiceProvider provider = BuildValidatedProvider();
 
             Assert.NotNull(provider);
@@ -81,10 +81,10 @@ namespace XNative.Integration.Tests.Composition
         {
             using ServiceProvider provider = BuildUnvalidatedProvider();
 
-            // On base, LocalGameCatalog is registered but its constructor
-            // requires IFileSystemService, which nothing registers, so this
-            // throws InvalidOperationException: the headline feature (the
-            // game library) cannot be constructed in either head.
+            // LocalGameCatalog's constructor requires IFileSystemService;
+            // if nothing registered it, resolving the catalog would throw
+            // InvalidOperationException and the headline feature (the game
+            // library) could not be constructed in either head.
             Assert.NotNull(provider.GetService<IGameCatalog>());
         }
 
@@ -101,8 +101,9 @@ namespace XNative.Integration.Tests.Composition
         {
             using ServiceProvider provider = BuildUnvalidatedProvider();
 
-            // docs/architecture.md claims XNative.Platform implements this.
-            // On base there is no implementation and no registration at all.
+            // docs/architecture.md claims XNative.Platform implements this;
+            // this test holds the docs to it — both an implementation and
+            // a registration must exist.
             Assert.NotNull(provider.GetService<IFileSystemService>());
         }
 
@@ -166,7 +167,7 @@ namespace XNative.Integration.Tests.Composition
             using ServiceProvider provider = BuildUnvalidatedProvider();
 
             // IGameProfileStore's contract says it is implemented in
-            // XNative.Wine; nothing registers it on base.
+            // XNative.Wine; the composition must register it.
             Assert.NotNull(provider.GetService<IGameProfileStore>());
         }
 

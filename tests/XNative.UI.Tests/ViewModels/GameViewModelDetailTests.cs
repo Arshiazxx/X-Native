@@ -106,7 +106,7 @@ namespace XNative.UI.Tests.ViewModels
         [Fact]
         public void Runner_ForWindowsExecutable_IsTheWineResearchLabel()
         {
-            // Pins the honest label (audit P2-17): a Windows executable
+            // Pins the honest label: a Windows executable
             // must not be presented as having a working "wine" runner;
             // the label matches WineCompatibilityLayer.DisplayName.
             var viewModel = new GameViewModel(MakeGame());

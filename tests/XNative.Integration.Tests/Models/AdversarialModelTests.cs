@@ -12,8 +12,8 @@ namespace XNative.Integration.Tests.Models
     /// promises (ArgumentNullException for null, ArgumentException for
     /// empty/whitespace where documented) and must accept everything else,
     /// including very long and unicode values. Where a model accepts input
-    /// its siblings reject, the test pins the current behaviour and the
-    /// AUDIT.md flags the inconsistency — pinning is not endorsement.
+    /// its siblings reject, the test pins the current behaviour so the
+    /// inconsistency stays visible — pinning is not endorsement.
     /// </summary>
     public sealed class AdversarialModelTests
     {

@@ -58,9 +58,9 @@ namespace XNative.UI.Tests.Mvvm
         [Fact]
         public void Execute_WhenCanExecuteReturnsFalse_DoesNotRunDelegate()
         {
-            // Pins the standard ICommand contract (QA finding M2): a
-            // command whose CanExecute is false must be a no-op, exactly
-            // like AsyncRelayCommand already behaves.
+            // Pins the standard ICommand contract: a command whose
+            // CanExecute is false must be a no-op, exactly like
+            // AsyncRelayCommand already behaves.
             int runCount = 0;
             var command = new RelayCommand(_ => runCount++, _ => false);
 
