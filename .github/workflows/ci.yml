@@ -8,6 +8,27 @@ on:
 permissions:
   contents: read
 
+# Every test project in the tree, by csproj path.
+#
+# X-Native.sln does not reference all of them (XNative.App.Tests,
+# XNative.Graphics.Tests, XNative.Plugins.Tests and
+# XNative.Integration.Tests are missing), so a solution-level
+# `dotnet test` silently skips those projects. The build job below
+# restores, builds and tests each project explicitly from this list,
+# and the test-coverage-guard job fails CI if a tests/**/*.csproj
+# ever exists that is in neither the solution nor this list.
+# Keep this list in sync when adding a test project.
+env:
+  TEST_PROJECTS: >-
+    tests/XNative.Core.Tests/XNative.Core.Tests.csproj
+    tests/XNative.Platform.Tests/XNative.Platform.Tests.csproj
+    tests/XNative.UI.Tests/XNative.UI.Tests.csproj
+    tests/XNative.Wine.Tests/XNative.Wine.Tests.csproj
+    tests/XNative.App.Tests/XNative.App.Tests.csproj
+    tests/XNative.Graphics.Tests/XNative.Graphics.Tests.csproj
+    tests/XNative.Plugins.Tests/XNative.Plugins.Tests.csproj
+    tests/XNative.Integration.Tests/XNative.Integration.Tests.csproj
+
 jobs:
   build:
     name: Build & test (${{ matrix.os }})
@@ -37,8 +58,79 @@ jobs:
       - name: Build
         run: dotnet build X-Native.sln -c Release --no-restore
 
-      - name: Test
-        run: dotnet test X-Native.sln -c Release --no-build
+      # Test projects are restored, built and tested individually by
+      # csproj path (see TEST_PROJECTS above): the solution does not
+      # reference all of them, so `dotnet test X-Native.sln` alone
+      # would silently skip the missing ones. `shell: bash` is used so
+      # the same loops run on the Windows matrix leg (Git Bash) and on
+      # Ubuntu.
+      - name: Restore test projects
+        shell: bash
+        run: |
+          set -euo pipefail
+          for proj in $TEST_PROJECTS; do
+            echo "=== dotnet restore $proj ==="
+            dotnet restore "$proj"
+          done
+
+      - name: Build test projects
+        shell: bash
+        run: |
+          set -euo pipefail
+          for proj in $TEST_PROJECTS; do
+            echo "=== dotnet build $proj ==="
+            dotnet build "$proj" -c Release --no-restore
+          done
+
+      - name: Test test projects
+        shell: bash
+        run: |
+          set -euo pipefail
+          for proj in $TEST_PROJECTS; do
+            echo "=== dotnet test $proj ==="
+            dotnet test "$proj" -c Release --no-build
+          done
+
+  test-coverage-guard:
+    name: Test project coverage guard
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Guard against silent test skips: every tests/**/*.csproj in the
+      # tree must be covered by CI, i.e. referenced by X-Native.sln or
+      # listed in TEST_PROJECTS (top of this workflow). Also fails on
+      # stale TEST_PROJECTS entries pointing at deleted projects.
+      - name: Fail if a test project is covered nowhere
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+
+          # Test projects referenced by the solution (paths normalised
+          # from Windows-style backslashes to forward slashes).
+          in_sln=$(grep -oE 'tests\\[^"]+\.csproj' X-Native.sln | tr '\\' '/' | sort -u || true)
+
+          for proj in $(find tests -name '*.csproj' | sort); do
+            if grep -qxF "$proj" <<< "$in_sln"; then
+              echo "OK (in X-Native.sln): $proj"
+            elif [[ " $TEST_PROJECTS " == *" $proj "* ]]; then
+              echo "OK (in TEST_PROJECTS): $proj"
+            else
+              echo "::error::Test project is in neither X-Native.sln nor TEST_PROJECTS, so CI would never run it: $proj"
+              failed=1
+            fi
+          done
+
+          for proj in $TEST_PROJECTS; do
+            if [ ! -f "$proj" ]; then
+              echo "::error::TEST_PROJECTS lists a project that does not exist: $proj"
+              failed=1
+            fi
+          done
+
+          exit $failed
 
   docs:
     name: Docs link check
