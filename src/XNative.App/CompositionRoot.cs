@@ -5,6 +5,7 @@ using XNative.Core.Abstractions;
 using XNative.Graphics;
 using XNative.Platform;
 using XNative.Platform.Games;
+using XNative.Platform.Input;
 using XNative.Plugins;
 using XNative.UI;
 using XNative.Wine;
@@ -32,6 +33,7 @@ namespace XNative.App
             services.AddSingleton<IModuleDescriptor, CoreModuleDescriptor>();
             services.AddSingleton<IDeviceInfoService, DesktopDeviceInfoService>();
             services.AddXNativePlatform();
+            services.AddXNativeInput();
             services.AddXNativeGraphics();
             services.AddXNativeWine();
             services.AddXNativePlugins();

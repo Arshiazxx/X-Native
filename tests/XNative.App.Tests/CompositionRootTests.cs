@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using XNative.Core.Abstractions;
 using XNative.Core.Devices;
 using XNative.Platform.Games;
+using XNative.Platform.Input;
 using XNative.UI.ViewModels;
 using Xunit;
 
@@ -68,6 +69,18 @@ namespace XNative.App.Tests
             IDeviceInfoService service = provider.GetRequiredService<IDeviceInfoService>();
 
             Assert.IsType<DesktopDeviceInfoService>(service);
+        }
+
+        [Fact]
+        public void Build_ResolvesInputService()
+        {
+            using ServiceProvider provider = CompositionRoot.Build();
+
+            IInputService service = provider.GetRequiredService<IInputService>();
+
+            Assert.IsType<ManualInputService>(service);
+            Assert.Same(service, provider.GetRequiredService<ManualInputService>());
+            Assert.Equal(0, service.ConnectedGamepadCount);
         }
 
         [Fact]
