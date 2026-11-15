@@ -157,12 +157,27 @@ namespace XNative.App.Tests
             LocalGameCatalogOptions options =
                 provider.GetRequiredService<IOptions<LocalGameCatalogOptions>>().Value;
 
-            // The platform module default is the documents folder; a
-            // default settings instance must not override it.
-            Assert.Equal(
-                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                options.RootPath);
+            // The platform module default is the documents folder
+            // whenever the platform resolves it, with the
+            // LocalApplicationData/XNative/Games fallback on hosts
+            // where it resolves empty (e.g. Linux without XDG user
+            // directories) so the root is never empty; a default
+            // settings instance must not override it. This mirrors
+            // PlatformModuleGamesRootTests in the platform suite.
+            Assert.False(string.IsNullOrWhiteSpace(options.RootPath));
+            Assert.Equal(ExpectedDefaultGamesRoot(), options.RootPath);
             Assert.Equal(AppSettings.DefaultScanMaxDepth, options.MaxDepth);
+        }
+
+        private static string ExpectedDefaultGamesRoot()
+        {
+            string documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            return string.IsNullOrWhiteSpace(documents)
+                ? Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "XNative",
+                    "Games")
+                : documents;
         }
 
         // ---- Precedence seam ------------------------------------------
