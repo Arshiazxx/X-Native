@@ -128,6 +128,77 @@ namespace XNative.App.Tests
             Assert.Contains("Settings reset to the defaults.", output.ToString());
         }
 
+        // ---- Dispatch totality ------------------------------------------
+        //
+        // The parser guarantees the handler only ever sees "show" or
+        // "reset", so an unrecognised subcommand cannot be produced
+        // through RunAsync at all. These tests therefore call the
+        // (internal) dispatch directly and pin that it enforces the
+        // invariant itself: anything that is not an explicit "show" or
+        // "reset" fails instead of silently running the show
+        // implementation.
+
+        [Fact]
+        public async Task RunSettingsAsync_ShowSubcommand_PrintsEffectiveSettings()
+        {
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = await Cli.RunSettingsAsync("show", output, error);
+
+            Assert.Equal(Cli.ExitSuccess, exitCode);
+            Assert.Contains("Effective settings:", output.ToString());
+        }
+
+        [Fact]
+        public async Task RunSettingsAsync_ResetSubcommand_ConfirmsReset()
+        {
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = await Cli.RunSettingsAsync("reset", output, error);
+
+            Assert.Equal(Cli.ExitSuccess, exitCode);
+            Assert.Contains("Settings reset to the defaults.", output.ToString());
+        }
+
+        [Fact]
+        public async Task RunSettingsAsync_UnknownSubcommand_ReturnsFailureAndDoesNotShow()
+        {
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = await Cli.RunSettingsAsync("frobnicate", output, error);
+
+            Assert.Equal(Cli.ExitFailure, exitCode);
+            Assert.Contains("frobnicate", error.ToString());
+            Assert.DoesNotContain("Effective settings:", output.ToString());
+        }
+
+        [Fact]
+        public async Task RunSettingsAsync_EmptySubcommand_ReturnsFailure()
+        {
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = await Cli.RunSettingsAsync(string.Empty, output, error);
+
+            Assert.Equal(Cli.ExitFailure, exitCode);
+            Assert.DoesNotContain("Effective settings:", output.ToString());
+        }
+
+        [Fact]
+        public async Task RunSettingsAsync_NullSubcommand_ReturnsFailure()
+        {
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = await Cli.RunSettingsAsync(null!, output, error);
+
+            Assert.Equal(Cli.ExitFailure, exitCode);
+            Assert.DoesNotContain("Effective settings:", output.ToString());
+        }
+
         [Fact]
         public async Task RunAsync_Help_ListsSettingsCommand()
         {

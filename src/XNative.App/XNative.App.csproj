@@ -22,4 +22,12 @@
     <PackageReference Include="Microsoft.Extensions.Options" Version="8.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Lets the test suite pin the settings subcommand dispatch
+         (Cli.RunSettingsAsync) directly: its unrecognised-subcommand
+         branch is unreachable through the public command-line surface,
+         because the parser rejects unknown subcommands first. -->
+    <InternalsVisibleTo Include="XNative.App.Tests" />
+  </ItemGroup>
+
 </Project>

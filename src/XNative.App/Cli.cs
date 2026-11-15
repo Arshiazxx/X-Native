@@ -339,7 +339,12 @@ namespace XNative.App
             return result.Success ? ExitSuccess : ExitFailure;
         }
 
-        private static async Task<int> RunSettingsAsync(string subcommand, TextWriter output, TextWriter error)
+        // Internal rather than private so the dispatch itself can be
+        // pinned by tests: the parser guarantees only "show"/"reset"
+        // ever reach this method (see CommandLine.ParseSettingsCommand),
+        // so the unrecognised-subcommand branch below is unreachable
+        // through RunAsync and could not be exercised end to end.
+        internal static async Task<int> RunSettingsAsync(string subcommand, TextWriter output, TextWriter error)
         {
             if (string.Equals(subcommand, "reset", StringComparison.Ordinal))
             {
@@ -349,6 +354,17 @@ namespace XNative.App
                 await SettingsBootstrap.ResetAsync().ConfigureAwait(false);
                 output.WriteLine("Settings reset to the defaults.");
                 return ExitSuccess;
+            }
+
+            if (!string.Equals(subcommand, "show", StringComparison.Ordinal))
+            {
+                // The dispatch enforces the parser's invariant itself
+                // instead of treating every non-"reset" value as
+                // "show": if a subcommand is ever added at the parse
+                // layer before it is handled here, it fails loudly
+                // instead of silently running the show implementation.
+                error.WriteLine($"Error: Unsupported settings subcommand '{subcommand}'.");
+                return ExitFailure;
             }
 
             // "show": print the values the app actually runs with, read
