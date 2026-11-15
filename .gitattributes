@@ -1,0 +1,17 @@
+# Default: let git detect text files and normalize line endings on commit.
+* text=auto
+
+# Source and project files: LF everywhere, on every platform.
+*.cs text eol=lf
+*.csproj text eol=lf
+*.md text eol=lf
+
+# Solution files: Visual Studio writes CRLF natively; blobs stay LF-normalized
+# in the repo, Windows working copies check out as CRLF.
+*.sln text eol=crlf
+
+# Binary assets: never touch line endings or diffs.
+*.png binary
+*.jpg binary
+*.exe binary
+*.dll binary

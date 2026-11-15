@@ -1,0 +1,183 @@
+using System;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Options;
+using XNative.Platform.Storage;
+using Xunit;
+
+namespace XNative.Platform.Tests.Storage
+{
+    public sealed class FileStorageServiceTests : IDisposable
+    {
+        private readonly string _root;
+        private readonly FileStorageService _service;
+
+        public FileStorageServiceTests()
+        {
+            _root = Path.Combine(
+                Path.GetTempPath(),
+                "xnative-storage-" + Guid.NewGuid().ToString("N"));
+            _service = new FileStorageService(
+                Options.Create(new FileStorageServiceOptions { RootPath = _root }));
+        }
+
+        public void Dispose()
+        {
+            try
+            {
+                if (Directory.Exists(_root))
+                {
+                    Directory.Delete(_root, recursive: true);
+                }
+            }
+            catch (IOException)
+            {
+            }
+        }
+
+        [Fact]
+        public async Task WriteThenRead_RoundTrips_AndCreatesRootLazily()
+        {
+            Assert.False(Directory.Exists(_root));
+
+            await _service.WriteTextAsync("settings.json", "{\"a\":1}");
+            string? value = await _service.ReadTextAsync("settings.json");
+
+            Assert.Equal("{\"a\":1}", value);
+            Assert.True(await _service.ExistsAsync("settings.json"));
+        }
+
+        [Fact]
+        public async Task Write_OverwritesAtomically_AndLeavesNoTempFiles()
+        {
+            await _service.WriteTextAsync("k.txt", "old");
+            await _service.WriteTextAsync("k.txt", "new-value");
+
+            Assert.Equal("new-value", await _service.ReadTextAsync("k.txt"));
+            Assert.Empty(Directory.GetFiles(_root, "*.tmp"));
+        }
+
+        [Fact]
+        public async Task Read_RoundTripsLargeValueAcrossChunks()
+        {
+            string expected = new string('é', 5000) + new string('x', 5000);
+            await _service.WriteTextAsync("large.txt", expected);
+
+            Assert.Equal(expected, await _service.ReadTextAsync("large.txt"));
+        }
+
+        [Fact]
+        public async Task Read_PreCancelledToken_Throws()
+        {
+            await _service.WriteTextAsync("k.txt", "value");
+
+            using (var source = new CancellationTokenSource())
+            {
+                source.Cancel();
+
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                    () => _service.ReadTextAsync("k.txt", source.Token));
+            }
+        }
+
+        [Fact]
+        public async Task Read_MissingKey_ReturnsNull()
+        {
+            Assert.Null(await _service.ReadTextAsync("missing.txt"));
+            Assert.False(await _service.ExistsAsync("missing.txt"));
+        }
+
+        [Fact]
+        public async Task Delete_MissingKey_IsNotAnError()
+        {
+            await _service.DeleteAsync("missing.txt");
+
+            await _service.WriteTextAsync("k.txt", "v");
+            await _service.DeleteAsync("k.txt");
+
+            Assert.False(await _service.ExistsAsync("k.txt"));
+        }
+
+        [Theory]
+        [InlineData("../evil")]
+        [InlineData("..")]
+        [InlineData("a/b")]
+        [InlineData("a\\b")]
+        [InlineData("")]
+        [InlineData("   ")]
+        [InlineData("a..b")]
+        public async Task Write_RejectsTraversalAndMalformedKeys(string key)
+        {
+            await Assert.ThrowsAnyAsync<ArgumentException>(
+                () => _service.WriteTextAsync(key, "x"));
+            await Assert.ThrowsAnyAsync<ArgumentException>(
+                () => _service.ReadTextAsync(key));
+        }
+
+        [Fact]
+        public async Task Write_RejectsRootedKey()
+        {
+            string rooted = Path.GetFullPath(Path.Combine(_root, "evil.txt"));
+
+            await Assert.ThrowsAnyAsync<ArgumentException>(
+                () => _service.WriteTextAsync(rooted, "x"));
+        }
+
+        [Fact]
+        public async Task Write_RejectsNullKey()
+        {
+            await Assert.ThrowsAsync<ArgumentNullException>(
+                () => _service.WriteTextAsync(null!, "x"));
+        }
+
+        [Theory]
+        [InlineData("con")]
+        [InlineData("CON")]
+        [InlineData("nul")]
+        [InlineData("nul.txt")]
+        [InlineData("aux")]
+        [InlineData("prn.log")]
+        [InlineData("com1")]
+        [InlineData("COM9.txt")]
+        [InlineData("lpt1")]
+        [InlineData("Lpt3.dat")]
+        public async Task Write_RejectsReservedDeviceNames(string key)
+        {
+            await Assert.ThrowsAnyAsync<ArgumentException>(
+                () => _service.WriteTextAsync(key, "x"));
+            await Assert.ThrowsAnyAsync<ArgumentException>(
+                () => _service.ReadTextAsync(key));
+            await Assert.ThrowsAnyAsync<ArgumentException>(
+                () => _service.ExistsAsync(key));
+            await Assert.ThrowsAnyAsync<ArgumentException>(
+                () => _service.DeleteAsync(key));
+        }
+
+        [Theory]
+        [InlineData("data.")]
+        [InlineData("data ")]
+        [InlineData("file. ")]
+        [InlineData(".")]
+        public async Task Write_RejectsKeysEndingInDotOrSpace(string key)
+        {
+            await Assert.ThrowsAnyAsync<ArgumentException>(
+                () => _service.WriteTextAsync(key, "x"));
+            await Assert.ThrowsAnyAsync<ArgumentException>(
+                () => _service.ReadTextAsync(key));
+        }
+
+        [Theory]
+        [InlineData("console.log")]
+        [InlineData("contact.txt")]
+        [InlineData("com10.txt")]
+        [InlineData("lpt.txt")]
+        [InlineData("data.json")]
+        public async Task Write_AcceptsKeysThatMerelyResembleReservedNames(string key)
+        {
+            await _service.WriteTextAsync(key, "v");
+
+            Assert.Equal("v", await _service.ReadTextAsync(key));
+        }
+    }
+}

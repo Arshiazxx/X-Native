@@ -12,8 +12,30 @@ namespace XNative.UI.ViewModels
     /// View model of the startup screen. It reports which modules the
     /// container resolved and which device the application runs on.
     /// </summary>
+    /// <remarks>
+    /// Thread affinity: this view model is fully synchronous (it starts
+    /// no tasks and awaits nothing) and is not thread-safe: it performs
+    /// no internal synchronisation and marshals nothing to a UI thread.
+    /// <see cref="Load"/> clears and refills <see cref="Modules"/> and
+    /// sets <see cref="DeviceInfo"/> and
+    /// <see cref="ViewModelBase.IsBusy"/>, raising
+    /// <see cref="ObservableObject.PropertyChanged"/> synchronously on
+    /// the calling thread. In a UWP/WinUI host, construct the view
+    /// model, call <see cref="Load"/>, and bind it from the UI thread
+    /// that owns the views. Because nothing is asynchronous, no
+    /// continuation can resume on another thread: the calling thread is
+    /// the only thread ever involved.
+    /// </remarks>
     public sealed class StartupViewModel : ViewModelBase
     {
+        // The modules every composition root registers, in display
+        // order. Load() reports each of these as loaded or missing, so
+        // a shared module that fails to register is visible on the
+        // startup screen. Modules a specific head registers on top of
+        // this shared set (for example "xnative.xboxhost") are NOT
+        // listed here: Load() reports them after the shared modules,
+        // in registration order, and only when present — a head's own
+        // module must never show as missing in another head.
         private static readonly string[] ExpectedModuleOrder =
         {
             "xnative.core",
@@ -21,6 +43,7 @@ namespace XNative.UI.ViewModels
             "xnative.graphics",
             "xnative.plugins",
             "xnative.wine",
+            "xnative.ui",
         };
 
         private readonly IEnumerable<IModuleDescriptor> _modules;
@@ -46,7 +69,11 @@ namespace XNative.UI.ViewModels
         public string Title => "X-Native";
 
         /// <summary>
-        /// Load state of every expected module, in a stable display order.
+        /// Load state of every registered module, in a stable display
+        /// order: the shared modules first, in their expected order
+        /// (a shared module that was not registered is reported as
+        /// missing), then any additional modules a head registered,
+        /// in registration order.
         /// </summary>
         public ObservableCollection<ModuleStatusViewModel> Modules { get; }
 
@@ -96,6 +123,22 @@ namespace XNative.UI.ViewModels
                     bool isLoaded = resolved.TryGetValue(id, out IModuleDescriptor descriptor);
                     string displayName = isLoaded ? descriptor.DisplayName : ToFallbackName(id);
                     Modules.Add(new ModuleStatusViewModel(id, displayName, isLoaded));
+                }
+
+                // Modules beyond the shared set belong to the head
+                // that registered them (for example the Xbox host
+                // module). Report them after the shared modules, in
+                // the order they were supplied, always as loaded:
+                // they are only ever reported when present, so one
+                // head's module can never show as missing in another.
+                var reported = new HashSet<string>(ExpectedModuleOrder, StringComparer.OrdinalIgnoreCase);
+
+                foreach (IModuleDescriptor module in _modules)
+                {
+                    if (reported.Add(module.Id))
+                    {
+                        Modules.Add(new ModuleStatusViewModel(module.Id, module.DisplayName, isLoaded: true));
+                    }
                 }
 
                 DeviceInfo = _deviceInfoService.GetDeviceInfo();

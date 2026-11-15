@@ -4,7 +4,9 @@ using System.Windows.Input;
 namespace XNative.UI.Mvvm
 {
     /// <summary>
-    /// <see cref="ICommand"/> backed by delegates.
+    /// <see cref="ICommand"/> backed by delegates. <see cref="Execute"/>
+    /// honours <see cref="CanExecute"/>: when the command cannot execute,
+    /// the call is a no-op and the delegate is not invoked.
     /// </summary>
     public sealed class RelayCommand : ICommand
     {
@@ -29,7 +31,15 @@ namespace XNative.UI.Mvvm
         public bool CanExecute(object? parameter) => _canExecute is null || _canExecute(parameter);
 
         /// <inheritdoc />
-        public void Execute(object? parameter) => _execute(parameter);
+        public void Execute(object? parameter)
+        {
+            if (!CanExecute(parameter))
+            {
+                return;
+            }
+
+            _execute(parameter);
+        }
 
         /// <summary>
         /// Raises <see cref="CanExecuteChanged"/>.

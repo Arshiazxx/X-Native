@@ -6,6 +6,8 @@
 
 > **Status:** 🚧 Early Development
 
+[![CI](https://github.com/Arshiazxx/X-Native/actions/workflows/ci.yml/badge.svg)](https://github.com/Arshiazxx/X-Native/actions/workflows/ci.yml)
+
 ---
 
 # What is X-Native?
@@ -78,50 +80,52 @@ Graphics      Audio       Community Plugins  Tools
 
 ## Phase 1 — Foundation
 
--  Project architecture
--  Core libraries
--  UWP host application
--  Logging system
--  Configuration system
--  Plugin framework
+- [x] Project architecture
+- [x] Core libraries
+- [x] UWP host application
+- [x] Logging system
+- [x] Configuration system (options-based: catalog, logging, and storage are configured through options classes)
+- [x] Persisted settings (validated `AppSettings` over a JSON settings service) and a diagnostic console CLI in the development head
+- [x] Plugin framework — `PluginHost`, an in-memory `IPluginCatalog`, and a failure-isolating `PluginManager` are implemented; plugins are compiled-in and registered by a head, because the sandbox forbids loading assemblies from disk at runtime
 
 ---
 
 ## Phase 2 — Compatibility Layer
 
--  Win32 abstraction
--  Process management
--  Memory management
--  Threading
--  DLL loading
--  File system virtualization
+- [ ] Win32 abstraction
+- [ ] Process management
+- [ ] Memory management
+- [ ] Threading
+- [ ] DLL loading
+- [ ] File system virtualization
+- [x] PE-based executable analysis — an inspector reads PE headers (architecture, subsystem, DLL/managed detection), and the catalog classifies every executable it records with it
 
 ---
 
 ## Phase 3 — Graphics
 
--  Graphics abstraction
--  DirectX translation research
--  Shader pipeline
--  Texture management
+- [ ] Graphics abstraction — the core contract, a backend registry, and a capability-based selector exist, with a null backend that renders nothing; no real rendering backend is implemented yet
+- [ ] DirectX translation research
+- [ ] Shader pipeline
+- [ ] Texture management
 
 ---
 
 ## Phase 4 — Input & Audio
 
--  Xbox controller support
--  Keyboard & mouse abstraction
--  Audio backend
--  XAudio compatibility research
+- [x] Xbox controller support — gamepad snapshot contracts in the core, a host-fed input service in the platform, and an Xbox host feed polling `Windows.Gaming.Input` at ~60 Hz
+- [ ] Keyboard & mouse abstraction — keyboard state contracts and service support exist; no host feeds keyboard input yet, and there is no mouse model
+- [ ] Audio backend
+- [ ] XAudio compatibility research
 
 ---
 
 ## Phase 5 — Game Support
 
--  Game profiles
--  Compatibility database
--  Launcher UI
--  Save management
+- [ ] Game profiles — the profile model and in-memory/JSON profile stores are implemented and resolved at launch; an examples pack ships three sample profiles, but no curated profile data ships yet
+- [ ] Compatibility database
+- [ ] Launcher UI — view models cover scanning, search/filter, sorting, and launching, and the Xbox host ships a working (minimal) page over them; no polished or desktop views ship yet
+- [ ] Save management
 
 ---
 
@@ -137,6 +141,31 @@ Expect:
 - Breaking changes
 
 Nothing should currently be considered stable.
+
+To be precise about what works today: X-Native can catalogue games from disk (including `game.json` manifests) and present them in the launcher UI, every catalogued executable is classified from its PE headers (architecture, subsystem, DLL/managed), the Xbox host reports module health on its startup screen and polls the real Xbox controller into the platform's input service, and a diagnostic console CLI (`info` / `scan` / `inspect` / `launch` / `settings`) exercises the same composition root on a PC, with persisted settings applied to the catalog and logging. Compatibility profiles are stored (in-memory and JSON-backed stores) and resolved on every launch attempt — a game whose profile rates it broken is refused with a structured `KnownBroken` failure — but the default registration ships an empty store and no backend exists behind the launch pipeline. **No PC game runs through X-Native yet** — the UWP sandbox forbids loading arbitrary executables, spawning processes, and JIT compilation, so execution is a research problem, not a shipped feature. See [docs/compatibility.md](docs/compatibility.md) for the full, honest picture.
+
+---
+
+# Building
+
+With the .NET SDK 8.0.x installed:
+
+```bash
+dotnet build X-Native.sln -c Release
+dotnet test X-Native.sln -c Release
+```
+
+That builds and tests the managed solution on Windows or Linux. Building and deploying the Xbox host needs Visual Studio 2022 and a console in Developer Mode. Full instructions: [docs/building.md](docs/building.md). The `game.json` manifest format is documented in [docs/game-manifest.md](docs/game-manifest.md).
+
+---
+
+# Documentation
+
+- [docs/building.md](docs/building.md) — how to build and test the managed solution, and how to build the Xbox host with Visual Studio and MSBuild.
+- [docs/architecture.md](docs/architecture.md) — the clean-architecture layout: module boundaries, the contracts in `XNative.Core`, and how the composition roots wire implementations together.
+- [docs/xbox-host.md](docs/xbox-host.md) — the UWP Xbox head: its configuration, service composition, controller input feed, and launch behaviour.
+- [docs/game-manifest.md](docs/game-manifest.md) — the `game.json` manifest format a game folder uses to describe itself to the catalog.
+- [docs/compatibility.md](docs/compatibility.md) — the honest picture: what the Xbox Dev Mode sandbox allows, what X-Native does today, and what remains research.
 
 ---
 

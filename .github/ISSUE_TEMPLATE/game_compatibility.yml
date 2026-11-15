@@ -1,0 +1,93 @@
+name: Game compatibility report
+description: Report how a specific game behaves (or fails to behave) with X-Native.
+title: "[Compat]: "
+labels: ["compatibility"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Compatibility reports are the project's shared knowledge base.
+        Honest "doesn't start" reports are just as valuable as "playable"
+        ones — please do not overstate a result. Note that X-Native cannot
+        run PC games yet; reports about cataloguing, PE analysis, and
+        launch attempts are all useful at this stage.
+  - type: input
+    id: game-title
+    attributes:
+      label: Game title
+      placeholder: e.g. Example Game
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: Store / source
+      options:
+        - Steam
+        - Epic Games Store
+        - GOG / DRM-free
+        - itch.io
+        - Other / self-built
+    validations:
+      required: true
+  - type: input
+    id: executable
+    attributes:
+      label: Executable file name
+      description: The game's main .exe file name, exactly as it appears on disk.
+      placeholder: e.g. game.exe
+    validations:
+      required: true
+  - type: dropdown
+    id: architecture
+    attributes:
+      label: Executable architecture (if known)
+      options:
+        - x86
+        - x64
+        - ARM64
+        - Don't know
+    validations:
+      required: true
+  - type: textarea
+    id: what-happens
+    attributes:
+      label: What happens?
+      description: What does X-Native do with this game today — is it catalogued, what does the launcher/PE analysis report, what happens on a launch attempt?
+    validations:
+      required: true
+  - type: dropdown
+    id: rating
+    attributes:
+      label: Rating
+      description: Use the project's rating scale. When in doubt, pick the lower rating.
+      options:
+        - Broken
+        - Starts
+        - Playable
+        - Perfect
+    validations:
+      required: true
+  - type: input
+    id: xbox-model
+    attributes:
+      label: Xbox model
+      placeholder: e.g. Xbox Series X / Xbox One S / not tested on console
+    validations:
+      required: true
+  - type: input
+    id: dev-mode-os
+    attributes:
+      label: Dev Mode OS version
+      description: The system OS version shown in Dev Home / Settings on the console, if tested on console.
+      placeholder: e.g. 10.0.26100.x
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Any relevant log output, PE inspector output, or error messages.
+      render: shell
+    validations:
+      required: false

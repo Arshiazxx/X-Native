@@ -1,0 +1,47 @@
+# EditorConfig for X-Native — https://editorconfig.org
+#
+# Conservative by design: this file describes the formatting the codebase
+# already uses. Code-style *rules* are kept at suggestion/silent severity
+# only. Directory.Build.props sets TreatWarningsAsErrors=true, so a
+# warning-severity style rule here could break the build for unrelated
+# work — do not raise severities without a deliberate, repo-wide cleanup.
+
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+# end_of_line is intentionally NOT set: contributors work on Windows and
+# Linux, and .gitattributes / git's own handling owns line endings. Setting
+# it here would fight contributors and create whole-file diffs.
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.{yml,yaml,json}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+# C# files in this repo are UTF-8 without a BOM and use LF line endings
+# (verified against src/**/*.cs). Do not force utf-8-bom here.
+[*.cs]
+charset = utf-8
+indent_size = 4
+
+# --- C# style preferences (suggestion/silent only — see header) ---
+
+[*.cs]
+dotnet_style_qualification_for_field = false:silent
+dotnet_style_qualification_for_property = false:silent
+dotnet_style_qualification_for_method = false:silent
+dotnet_style_qualification_for_event = false:silent
+dotnet_style_require_accessibility_modifiers = for_non_interface_members:suggestion
+dotnet_style_readonly_field = true:suggestion
+csharp_style_var_for_built_in_types = false:silent
+csharp_style_var_when_type_is_apparent = true:silent
+csharp_style_var_elsewhere = false:silent
+csharp_prefer_braces = true:silent
+csharp_style_namespace_declarations = block_scoped:silent
+dotnet_diagnostic.IDE0005.severity = suggestion
+dotnet_diagnostic.IDE0059.severity = suggestion

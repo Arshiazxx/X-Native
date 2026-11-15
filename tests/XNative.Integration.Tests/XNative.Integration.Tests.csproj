@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>XNative.Integration.Tests</RootNamespace>
+    <AssemblyName>XNative.Integration.Tests</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <!--
+    Integration gate for the whole composition.
+    Modeled on tests/XNative.Platform.Tests/XNative.Platform.Tests.csproj.
+    Unlike the module test projects this one deliberately references every
+    shipping module plus the composition root (XNative.App), because the
+    failures it exists to catch only appear when the modules are wired
+    together. Test doubles are hand-rolled (see Doubles/) so no mocking
+    package is needed.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.5.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\XNative.App\XNative.App.csproj" />
+    <ProjectReference Include="..\..\src\XNative.Core\XNative.Core.csproj" />
+    <ProjectReference Include="..\..\src\XNative.Graphics\XNative.Graphics.csproj" />
+    <ProjectReference Include="..\..\src\XNative.Platform\XNative.Platform.csproj" />
+    <ProjectReference Include="..\..\src\XNative.Plugins\XNative.Plugins.csproj" />
+    <ProjectReference Include="..\..\src\XNative.UI\XNative.UI.csproj" />
+    <ProjectReference Include="..\..\src\XNative.Wine\XNative.Wine.csproj" />
+  </ItemGroup>
+
+</Project>

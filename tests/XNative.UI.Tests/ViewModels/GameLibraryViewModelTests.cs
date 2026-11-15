@@ -26,11 +26,11 @@ namespace XNative.UI.Tests.ViewModels
 
             Assert.Equal("Test Game", viewModel.Name);
             Assert.Equal(@"C:\Games\Test\game.exe", viewModel.ExecutablePath);
-            Assert.Equal("wine", viewModel.Runner);
+            Assert.Equal("wine (research)", viewModel.Runner);
             Assert.Equal(ExecutableType.WindowsExecutable, viewModel.ExecutableType);
-            Assert.Equal("Test Game (wine)", viewModel.DisplayText);
+            Assert.Equal("Test Game (wine (research))", viewModel.DisplayText);
             Assert.Contains("Path: C:\\Games\\Test\\game.exe", viewModel.DetailText);
-            Assert.Contains("Runner: wine", viewModel.DetailText);
+            Assert.Contains("Runner: wine (research)", viewModel.DetailText);
         }
 
         [Fact]
@@ -107,7 +107,7 @@ namespace XNative.UI.Tests.ViewModels
             Assert.Equal("2 games found", _viewModel.GamesFoundText);
             Assert.Equal("Game A", _viewModel.Games[0].Name);
             Assert.Equal("Game B", _viewModel.Games[1].Name);
-            Assert.Equal("wine", _viewModel.Games[0].Runner);
+            Assert.Equal("wine (research)", _viewModel.Games[0].Runner);
             Assert.Equal("uwp", _viewModel.Games[1].Runner);
             Assert.False(_viewModel.IsBusy);
         }

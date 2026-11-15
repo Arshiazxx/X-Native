@@ -4,6 +4,8 @@ using XNative.Core;
 using XNative.Core.Abstractions;
 using XNative.Graphics;
 using XNative.Platform;
+using XNative.Platform.Games;
+using XNative.Platform.Input;
 using XNative.Plugins;
 using XNative.UI;
 using XNative.Wine;
@@ -18,6 +20,7 @@ namespace XNative.XboxHost.Bootstrap
     /// </summary>
     public static class Bootstrapper
     {
+        private static readonly object StartLock = new object();
         private static ServiceProvider? _provider;
 
         /// <summary>
@@ -36,8 +39,17 @@ namespace XNative.XboxHost.Bootstrap
         /// Registers every module of the application.
         /// </summary>
         /// <param name="services">The service collection to populate.</param>
+        /// <param name="gamesRootPath">
+        /// The directory the local game catalog scans, or <c>null</c> to
+        /// keep the platform module default. Games on Xbox live on
+        /// removable or external storage rather than in the default
+        /// documents folder, so the host passes that location here once
+        /// it knows it.
+        /// </param>
         /// <returns>The same service collection, to allow chaining.</returns>
-        public static IServiceCollection AddXNative(this IServiceCollection services)
+        public static IServiceCollection AddXNative(
+            this IServiceCollection services,
+            string? gamesRootPath = null)
         {
             if (services == null)
             {
@@ -45,51 +57,112 @@ namespace XNative.XboxHost.Bootstrap
             }
 
             services.AddSingleton<IModuleDescriptor, CoreModuleDescriptor>();
-            services.AddXNativePlatform();
+
+            // The Xbox head composes the platform core, not the full
+            // desktop platform module: the desktop IProcessService wraps
+            // System.Diagnostics.Process, which the UWP sandbox forbids.
+            // The head registers its own honest implementation instead,
+            // one that reports the limitation instead of failing at
+            // first use.
+            services.AddXNativePlatformCore();
+            services.AddSingleton<IProcessService, UnavailableProcessService>();
+            services.AddXNativeInput();
             services.AddXNativeGraphics();
             services.AddXNativeWine();
             services.AddXNativePlugins();
             services.AddXNativeUI();
             services.AddXboxHost();
+
+            if (!string.IsNullOrWhiteSpace(gamesRootPath))
+            {
+                services.Configure<LocalGameCatalogOptions>(options =>
+                {
+                    options.RootPath = gamesRootPath!;
+                });
+            }
+
             return services;
         }
 
         /// <summary>
         /// Builds the container and resolves every module so that failures
         /// surface during startup instead of on first navigation.
+        /// <see cref="Start"/> and <see cref="Reset"/> are serialised on a
+        /// private lock: activation is single-threaded today, but the
+        /// static state must not depend on every future caller knowing
+        /// that.
         /// </summary>
         /// <returns>The result of the startup sequence.</returns>
         public static StartupReport Start()
         {
-            if (_provider != null)
+            lock (StartLock)
             {
-                return StartupReport.Succeeded(_provider);
-            }
-
-            try
-            {
-                ServiceProvider provider = new ServiceCollection()
-                    .AddXNative()
-                    .BuildServiceProvider(new ServiceProviderOptions
-                    {
-                        ValidateOnBuild = true,
-                        ValidateScopes = true,
-                    });
-
-                foreach (IModuleDescriptor module in provider.GetServices<IModuleDescriptor>())
+                if (_provider != null)
                 {
-                    _ = module.Id;
+                    return StartupReport.Succeeded(_provider);
                 }
 
-                _ = provider.GetRequiredService<IDeviceInfoService>();
+                ServiceProvider? provider = null;
 
-                _provider = provider;
-                return StartupReport.Succeeded(provider);
+                try
+                {
+                    provider = new ServiceCollection()
+                        .AddXNative()
+                        .BuildServiceProvider(new ServiceProviderOptions
+                        {
+                            ValidateOnBuild = true,
+                            ValidateScopes = true,
+                        });
+
+                    foreach (IModuleDescriptor module in provider.GetServices<IModuleDescriptor>())
+                    {
+                        _ = module.Id;
+                    }
+
+                    // Resolve the device info service AND run its
+                    // detection. Resolution alone exercises nothing:
+                    // detection is lazy, so the one fallible WinRT
+                    // operation in the startup path would otherwise
+                    // first run unguarded on the first page. Running it
+                    // here lands a detection failure in the failed
+                    // report, like every other startup failure.
+                    _ = provider.GetRequiredService<IDeviceInfoService>().GetDeviceInfo();
+
+                    StartupReport report = StartupReport.Succeeded(provider);
+                    _provider = provider;
+                    return report;
+                }
+                catch (Exception exception)
+                {
+                    // A provider built before the failure is never
+                    // handed out, so nothing else can dispose it:
+                    // dispose it here, or it leaks and a retry builds a
+                    // second container beside the corpse of the first.
+                    provider?.Dispose();
+                    return StartupReport.Failed(exception);
+                }
             }
-            catch (InvalidOperationException exception)
+        }
+
+        /// <summary>
+        /// Disposes the current service provider and clears the started
+        /// state, so that <see cref="Start"/> can be called again. This
+        /// also clears the report cached on <see cref="App.Startup"/>:
+        /// the app keeps its own static copy, and leaving it behind
+        /// would hand out the disposed provider behind a cached
+        /// success. This is test and support tooling: the running
+        /// application never calls it, because a UWP host starts
+        /// exactly once per process.
+        /// </summary>
+        public static void Reset()
+        {
+            lock (StartLock)
             {
-                return StartupReport.Failed(exception);
+                _provider?.Dispose();
+                _provider = null;
             }
+
+            App.Startup = null;
         }
 
         /// <summary>

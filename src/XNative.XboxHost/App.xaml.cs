@@ -26,8 +26,12 @@ namespace XNative.XboxHost
 
         /// <summary>
         /// The result of the startup sequence, consumed by the first page.
+        /// The setter is internal so that
+        /// <see cref="Bootstrapper.Reset"/> can clear the cached report
+        /// together with the provider it describes; a stale success here
+        /// would hand out a disposed provider.
         /// </summary>
-        public static StartupReport? Startup { get; private set; }
+        public static StartupReport? Startup { get; internal set; }
 
         /// <inheritdoc />
         protected override void OnLaunched(LaunchActivatedEventArgs e)
@@ -39,7 +43,13 @@ namespace XNative.XboxHost
 
             ApplicationView.GetForCurrentView().SetDesiredBoundsMode(ApplicationViewBoundsMode.UseCoreWindow);
 
-            Startup ??= Bootstrapper.Start();
+            // A failed start is not cached: the next activation retries
+            // Bootstrapper.Start() instead of reusing the failure for
+            // the rest of the process lifetime.
+            if (Startup == null || !Startup.IsSuccess)
+            {
+                Startup = Bootstrapper.Start();
+            }
 
             if (!(Window.Current.Content is Frame rootFrame))
             {
@@ -48,12 +58,19 @@ namespace XNative.XboxHost
                 Window.Current.Content = rootFrame;
             }
 
-            if (!e.PrelaunchActivated && rootFrame.Content == null)
+            if (!e.PrelaunchActivated)
             {
-                rootFrame.Navigate(typeof(MainPage), e.Arguments);
-            }
+                if (rootFrame.Content == null)
+                {
+                    rootFrame.Navigate(typeof(MainPage), e.Arguments);
+                }
 
-            Window.Current.Activate();
+                // Activate only on a real launch: during prelaunch the
+                // OS starts the process ahead of time so the real
+                // launch is fast, and activating there would surface
+                // the window before the user launched anything.
+                Window.Current.Activate();
+            }
         }
 
         private static void OnNavigationFailed(object sender, NavigationFailedEventArgs e)

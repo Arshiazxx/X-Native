@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -29,7 +30,12 @@ namespace XNative.Core.Abstractions
         /// Gets files matching a pattern in a directory.
         /// </summary>
         /// <param name="directory">The directory to search.</param>
-        /// <param name="pattern">The search pattern (e.g., "*.exe").</param>
+        /// <param name="pattern">The search pattern (e.g., "*.exe").
+        /// A <c>null</c>, empty, or whitespace-only pattern matches
+        /// nothing: implementations return an empty array rather than
+        /// widening a blank pattern into a match-everything search.
+        /// Callers that want every file pass an explicit pattern such
+        /// as "*.*".</param>
         /// <returns>An array of matching file paths.</returns>
         string[] GetFiles(string directory, string pattern);
 
@@ -39,6 +45,14 @@ namespace XNative.Core.Abstractions
         /// <param name="directory">The directory to search.</param>
         /// <returns>An array of subdirectory paths.</returns>
         string[] GetDirectories(string directory);
+
+        /// <summary>
+        /// Opens a file for reading.
+        /// </summary>
+        /// <param name="path">The file path.</param>
+        /// <returns>A read-only stream over the file contents. The caller
+        /// owns the returned stream and is responsible for disposing it.</returns>
+        Stream OpenRead(string path);
 
         /// <summary>
         /// Reads all text from a file asynchronously.

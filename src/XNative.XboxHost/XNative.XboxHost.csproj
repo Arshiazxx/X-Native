@@ -86,9 +86,11 @@
     </Compile>
     <Compile Include="Bootstrap\Bootstrapper.cs" />
     <Compile Include="Bootstrap\StartupReport.cs" />
+    <Compile Include="Input\GamepadInputFeed.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Services\XboxHostModule.cs" />
     <Compile Include="Services\XboxHostModuleDescriptor.cs" />
+    <Compile Include="Services\UnavailableProcessService.cs" />
     <Compile Include="Services\UwpDeviceInfoService.cs" />
     <Compile Include="Views\MainPage.xaml.cs">
       <DependentUpon>MainPage.xaml</DependentUpon>
