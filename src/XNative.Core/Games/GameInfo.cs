@@ -1,4 +1,5 @@
 using System;
+using XNative.Core.Devices;
 
 namespace XNative.Core.Games
 {
@@ -16,6 +17,8 @@ namespace XNative.Core.Games
         /// <param name="workingDirectory">Working directory for the executable.</param>
         /// <param name="executableType">Type of the executable.</param>
         /// <param name="metadata">Optional metadata about the game.</param>
+        /// <param name="architecture">Processor architecture of the executable, when known.</param>
+        /// <param name="launchArguments">Default arguments recorded for this game, for example from its manifest.</param>
         /// <exception cref="ArgumentNullException">Thrown when required parameters are null.</exception>
         /// <exception cref="ArgumentException">Thrown when required parameters are empty.</exception>
         public GameInfo(
@@ -24,7 +27,9 @@ namespace XNative.Core.Games
             string executablePath,
             string workingDirectory,
             ExecutableType executableType,
-            GameMetadata? metadata = null)
+            GameMetadata? metadata = null,
+            ProcessorArchitecture architecture = ProcessorArchitecture.Unknown,
+            string? launchArguments = null)
         {
             Id = id ?? throw new ArgumentNullException(nameof(id));
             Name = name ?? throw new ArgumentNullException(nameof(name));
@@ -32,6 +37,8 @@ namespace XNative.Core.Games
             WorkingDirectory = workingDirectory ?? throw new ArgumentNullException(nameof(workingDirectory));
             ExecutableType = executableType;
             Metadata = metadata;
+            Architecture = architecture;
+            LaunchArguments = launchArguments;
 
             if (string.IsNullOrWhiteSpace(Id))
                 throw new ArgumentException("Id cannot be empty.", nameof(id));
@@ -72,5 +79,16 @@ namespace XNative.Core.Games
         /// Optional metadata about the game.
         /// </summary>
         public GameMetadata? Metadata { get; }
+
+        /// <summary>
+        /// Processor architecture of the executable, when known.
+        /// </summary>
+        public ProcessorArchitecture Architecture { get; }
+
+        /// <summary>
+        /// Default arguments recorded for this game, for example from
+        /// its manifest, or <c>null</c> for none.
+        /// </summary>
+        public string? LaunchArguments { get; }
     }
 }

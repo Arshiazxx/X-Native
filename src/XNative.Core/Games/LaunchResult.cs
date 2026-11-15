@@ -1,5 +1,3 @@
-using System;
-
 namespace XNative.Core.Games
 {
     /// <summary>
@@ -7,11 +5,12 @@ namespace XNative.Core.Games
     /// </summary>
     public sealed class LaunchResult
     {
-        private LaunchResult(bool success, string? message, int? processId)
+        private LaunchResult(bool success, string? message, int? processId, LaunchFailureReason reason)
         {
             Success = success;
             Message = message;
             ProcessId = processId;
+            Reason = reason;
         }
 
         /// <summary>
@@ -30,6 +29,12 @@ namespace XNative.Core.Games
         public int? ProcessId { get; }
 
         /// <summary>
+        /// Machine-readable reason the launch failed, or
+        /// <see cref="LaunchFailureReason.None"/> when it succeeded.
+        /// </summary>
+        public LaunchFailureReason Reason { get; }
+
+        /// <summary>
         /// Creates a successful launch result.
         /// </summary>
         /// <param name="message">Optional message.</param>
@@ -37,17 +42,18 @@ namespace XNative.Core.Games
         /// <returns>A successful <see cref="LaunchResult"/>.</returns>
         public static LaunchResult Ok(string? message = null, int? processId = null)
         {
-            return new LaunchResult(true, message, processId);
+            return new LaunchResult(true, message, processId, LaunchFailureReason.None);
         }
 
         /// <summary>
         /// Creates a failed launch result.
         /// </summary>
         /// <param name="message">Error message.</param>
+        /// <param name="reason">Machine-readable failure reason.</param>
         /// <returns>A failed <see cref="LaunchResult"/>.</returns>
-        public static LaunchResult Fail(string message)
+        public static LaunchResult Fail(string message, LaunchFailureReason reason = LaunchFailureReason.Unknown)
         {
-            return new LaunchResult(false, message, null);
+            return new LaunchResult(false, message, null, reason);
         }
     }
 }
