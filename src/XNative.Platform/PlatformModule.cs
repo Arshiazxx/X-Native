@@ -56,16 +56,18 @@ namespace XNative.Platform
 
             services.AddSingleton<IModuleDescriptor, PlatformModuleDescriptor>();
 
-            // Default roots live under LocalApplicationData/XNative.
-            // Registration only computes paths; nothing is created on
-            // disk until a service is first used.
+            // Default roots: the game catalog scans the user's documents
+            // folder, while storage and logs live under
+            // LocalApplicationData/XNative. Registration only computes
+            // paths; nothing is created on disk until a service is
+            // first used.
             string appDataRoot = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "XNative");
 
             services.Configure<LocalGameCatalogOptions>(options =>
             {
-                options.RootPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                options.RootPath = DefaultGamesRootPath(appDataRoot);
             });
             services.Configure<FileStorageServiceOptions>(options =>
             {
@@ -90,6 +92,27 @@ namespace XNative.Platform
 
             services.AddSingleton<IGameCatalog, LocalGameCatalog>();
             return services;
+        }
+
+        /// <summary>
+        /// Resolves the default game catalog root. The documents folder
+        /// is the default whenever the platform resolves it; some
+        /// environments (notably Linux hosts without XDG user
+        /// directories, such as a bare root shell) report it as empty,
+        /// and an empty root would silently catalogue nothing, so the
+        /// fallback is the "Games" folder under the same
+        /// LocalApplicationData/XNative root that storage and logs use.
+        /// </summary>
+        /// <param name="appDataRoot">The LocalApplicationData/XNative
+        /// root the other defaults are built from.</param>
+        /// <returns>The documents folder when it resolves to a
+        /// non-empty path; otherwise the fallback games root.</returns>
+        private static string DefaultGamesRootPath(string appDataRoot)
+        {
+            string documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            return string.IsNullOrWhiteSpace(documents)
+                ? Path.Combine(appDataRoot, "Games")
+                : documents;
         }
     }
 }

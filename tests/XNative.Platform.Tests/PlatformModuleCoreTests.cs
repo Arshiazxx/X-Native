@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -92,9 +93,21 @@ namespace XNative.Platform.Tests
             LocalGameCatalogOptions options =
                 provider.GetRequiredService<IOptions<LocalGameCatalogOptions>>().Value;
 
-            Assert.Equal(
-                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                options.RootPath);
+            // The default root is the documents folder whenever the
+            // platform resolves it; on hosts where it resolves empty
+            // (e.g. Linux without XDG user directories) the module falls
+            // back to LocalApplicationData/XNative/Games so the catalog
+            // never ends up with an empty root.
+            string documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            string expected = string.IsNullOrWhiteSpace(documents)
+                ? Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "XNative",
+                    "Games")
+                : documents;
+
+            Assert.False(string.IsNullOrWhiteSpace(options.RootPath));
+            Assert.Equal(expected, options.RootPath);
         }
 
         [Fact]
