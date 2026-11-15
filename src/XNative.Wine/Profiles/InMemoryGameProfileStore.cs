@@ -13,6 +13,13 @@ namespace XNative.Wine.Profiles
     /// executable name, so Windows-style paths (<c>C:\Games\game.exe</c>)
     /// match correctly on any host operating system.
     /// </summary>
+    /// <remarks>
+    /// Profile IDs must be unique: two profiles sharing an ID are
+    /// rejected at construction time instead of silently shadowing each
+    /// other. IDs are compared case-insensitively, matching how the
+    /// launch pipeline resolves a requested
+    /// <see cref="LaunchOptions.ProfileId"/> against profile IDs.
+    /// </remarks>
     public sealed class InMemoryGameProfileStore : IGameProfileStore
     {
         private readonly List<GameProfile> _profiles;
@@ -32,6 +39,7 @@ namespace XNative.Wine.Profiles
         /// </summary>
         /// <param name="profiles">The profiles the store knows about.</param>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="profiles"/> or one of its entries is <c>null</c>.</exception>
+        /// <exception cref="ArgumentException">Thrown when two profiles share the same ID, compared case-insensitively.</exception>
         public InMemoryGameProfileStore(IEnumerable<GameProfile> profiles)
         {
             if (profiles == null)
@@ -40,11 +48,20 @@ namespace XNative.Wine.Profiles
             }
 
             _profiles = new List<GameProfile>();
+            var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (GameProfile profile in profiles)
             {
                 if (profile == null)
                 {
                     throw new ArgumentNullException(nameof(profiles), "The profile collection must not contain null entries.");
+                }
+
+                if (!seenIds.Add(profile.Id))
+                {
+                    throw new ArgumentException(
+                        "Duplicate profile ID '" + profile.Id + "'. Profile IDs must be unique " +
+                        "(compared case-insensitively); a duplicate would silently shadow the earlier profile.",
+                        nameof(profiles));
                 }
 
                 _profiles.Add(profile);

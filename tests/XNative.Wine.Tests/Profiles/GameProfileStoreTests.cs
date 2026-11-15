@@ -140,5 +140,80 @@ namespace XNative.Wine.Tests.Profiles
             var store = new JsonGameProfileStore("[]");
             Assert.Throws<ArgumentNullException>(() => store.FindForGame(null!));
         }
+
+        [Fact]
+        public void InMemory_Constructor_ThrowsOnDuplicateProfileIds()
+        {
+            var profiles = new[]
+            {
+                new GameProfile("dup", "a.exe", CompatibilityRating.Playable),
+                new GameProfile("dup", "b.exe", CompatibilityRating.Broken),
+            };
+
+            ArgumentException exception = Assert.Throws<ArgumentException>(() => new InMemoryGameProfileStore(profiles));
+            Assert.Contains("dup", exception.Message);
+        }
+
+        [Fact]
+        public void InMemory_Constructor_ThrowsOnProfileIdsDifferingOnlyByCase()
+        {
+            // The launch pipeline resolves LaunchOptions.ProfileId against
+            // profile IDs case-insensitively, so IDs that differ only by
+            // case would collide at lookup time and must count as duplicates.
+            var profiles = new[]
+            {
+                new GameProfile("Game", "a.exe", CompatibilityRating.Playable),
+                new GameProfile("game", "b.exe", CompatibilityRating.Broken),
+            };
+
+            Assert.Throws<ArgumentException>(() => new InMemoryGameProfileStore(profiles));
+        }
+
+        [Fact]
+        public void Json_DuplicateProfileIds_ThrowsInvalidDataException()
+        {
+            const string json = @"[
+              { ""id"": ""dup"", ""executableName"": ""a.exe"", ""rating"": ""Playable"" },
+              { ""id"": ""dup"", ""executableName"": ""b.exe"", ""rating"": ""Broken"" }
+            ]";
+
+            InvalidDataException exception = Assert.Throws<InvalidDataException>(() => new JsonGameProfileStore(json));
+            Assert.Contains("dup", exception.Message);
+        }
+
+        [Fact]
+        public void Json_ProfileIdsDifferingOnlyByCase_ThrowsInvalidDataException()
+        {
+            const string json = @"[
+              { ""id"": ""Game"", ""executableName"": ""a.exe"", ""rating"": ""Playable"" },
+              { ""id"": ""game"", ""executableName"": ""b.exe"", ""rating"": ""Broken"" }
+            ]";
+
+            Assert.Throws<InvalidDataException>(() => new JsonGameProfileStore(json));
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void Json_EmptyOrWhitespaceProfileId_ThrowsInvalidDataException(string id)
+        {
+            string json = "[{ \"id\": \"" + id + "\", \"executableName\": \"game.exe\", \"rating\": \"Playable\" }]";
+
+            Assert.Throws<InvalidDataException>(() => new JsonGameProfileStore(json));
+        }
+
+        [Fact]
+        public void Json_MultipleDistinctProfiles_LoadsAll()
+        {
+            const string json = @"[
+              { ""id"": ""alpha"", ""executableName"": ""a.exe"", ""rating"": ""Playable"" },
+              { ""id"": ""beta"", ""executableName"": ""b.exe"", ""rating"": ""Starts"" },
+              { ""id"": ""gamma"", ""executableName"": ""c.exe"", ""rating"": ""Broken"" }
+            ]";
+
+            var store = new JsonGameProfileStore(json);
+
+            Assert.Equal(3, store.GetProfiles().Count);
+        }
     }
 }

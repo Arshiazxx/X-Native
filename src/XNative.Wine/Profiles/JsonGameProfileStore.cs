@@ -19,10 +19,14 @@ namespace XNative.Wine.Profiles
     /// <remarks>
     /// A malformed database is loud, never silently empty: invalid JSON,
     /// a non-array root, a missing <c>id</c> / <c>executableName</c> /
-    /// <c>rating</c>, or an unknown rating name all throw
+    /// <c>rating</c>, an empty or whitespace <c>id</c>, a duplicated
+    /// <c>id</c>, or an unknown rating name all throw
     /// <see cref="InvalidDataException"/> at load time. Silently treating
     /// a broken compatibility database as "no profiles" would hide data
-    /// loss and make known-broken games look merely untested.
+    /// loss and make known-broken games look merely untested, and a
+    /// duplicated ID would silently shadow the earlier profile. IDs are
+    /// compared case-insensitively, matching how the launch pipeline
+    /// resolves a requested profile ID.
     /// </remarks>
     public sealed class JsonGameProfileStore : IGameProfileStore
     {
@@ -143,10 +147,20 @@ namespace XNative.Wine.Profiles
                 }
 
                 var profiles = new List<GameProfile>();
+                var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 int index = 0;
                 foreach (JsonElement element in document.RootElement.EnumerateArray())
                 {
-                    profiles.Add(ParseProfile(element, index));
+                    GameProfile profile = ParseProfile(element, index);
+                    if (!seenIds.Add(profile.Id))
+                    {
+                        throw new InvalidDataException(
+                            "Compatibility profile at index " + index + " duplicates the profile ID '" + profile.Id +
+                            "'. Profile IDs must be unique (compared case-insensitively); " +
+                            "a duplicate would silently shadow the earlier profile.");
+                    }
+
+                    profiles.Add(profile);
                     index++;
                 }
 
