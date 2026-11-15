@@ -87,17 +87,14 @@ namespace XNative.Integration.Tests.Models
         }
 
         [Fact]
-        public void DeviceInfo_EmptyAndWhitespace_AreAccepted_PinsMissingValidation()
+        public void DeviceInfo_EmptyAndWhitespace_AreRejected()
         {
-            // Unlike GameInfo/GameProfile, DeviceInfo documents no
-            // ArgumentException and performs no empty check. A host that
-            // reports empty strings therefore produces a DeviceInfo full of
-            // blanks instead of the documented "Unknown" fallback. Pinned
-            // here; flagged in AUDIT.md as an inconsistency.
-            var info = new DeviceInfo("", "   ", "", "", "");
-
-            Assert.Equal("", info.DeviceFamily);
-            Assert.False(info.IsXbox);
+            // Originally pinned the missing validation (DeviceInfo accepted
+            // empty strings unlike GameInfo/GameProfile). Fixed by the
+            // core-validation pass: all five string properties now reject
+            // empty/whitespace exactly like their siblings, so hosts must
+            // use the "Unknown" fallback values.
+            Assert.Throws<ArgumentException>(() => new DeviceInfo("", "   ", "", "", ""));
         }
 
         [Fact]
@@ -182,14 +179,12 @@ namespace XNative.Integration.Tests.Models
         }
 
         [Fact]
-        public void RunningProcess_EmptyFileName_IsAccepted_PinsMissingValidation()
+        public void RunningProcess_EmptyFileName_IsRejected()
         {
-            // ProcessStartRequest rejects an empty FileName; RunningProcess,
-            // describing the same path after launch, accepts it. Pinned;
-            // flagged in AUDIT.md.
-            var process = new RunningProcess(1, "", DateTime.UtcNow, false, null);
-
-            Assert.Equal("", process.FileName);
+            // Originally pinned the inconsistency (ProcessStartRequest
+            // rejected an empty FileName; RunningProcess accepted it).
+            // Fixed by the core-validation pass: both now reject it.
+            Assert.Throws<ArgumentException>(() => new RunningProcess(1, "", DateTime.UtcNow, false, null));
         }
 
         // ---------- LaunchResult invariants ----------
