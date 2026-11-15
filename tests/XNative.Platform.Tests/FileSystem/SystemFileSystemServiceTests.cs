@@ -45,6 +45,22 @@ namespace XNative.Platform.Tests.FileSystem
         }
 
         [Fact]
+        public void OpenRead_RoundTripsWrittenBytes()
+        {
+            string path = Path.Combine(_root, "bytes.bin");
+            byte[] expected = { 0x4D, 0x5A, 0x00, 0x01, 0xFE, 0xFF };
+            File.WriteAllBytes(path, expected);
+
+            using (var stream = _service.OpenRead(path))
+            using (var buffer = new MemoryStream())
+            {
+                stream.CopyTo(buffer);
+
+                Assert.Equal(expected, buffer.ToArray());
+            }
+        }
+
+        [Fact]
         public void ExistsChecks_ReflectDisk()
         {
             string path = Path.Combine(_root, "a.txt");

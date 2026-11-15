@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -39,6 +40,14 @@ namespace XNative.Core.Abstractions
         /// <param name="directory">The directory to search.</param>
         /// <returns>An array of subdirectory paths.</returns>
         string[] GetDirectories(string directory);
+
+        /// <summary>
+        /// Opens a file for reading.
+        /// </summary>
+        /// <param name="path">The file path.</param>
+        /// <returns>A read-only stream over the file contents. The caller
+        /// owns the returned stream and is responsible for disposing it.</returns>
+        Stream OpenRead(string path);
 
         /// <summary>
         /// Reads all text from a file asynchronously.

@@ -71,6 +71,17 @@ namespace XNative.Platform.FileSystem
         }
 
         /// <inheritdoc />
+        public Stream OpenRead(string path)
+        {
+            if (path == null)
+            {
+                throw new ArgumentNullException(nameof(path));
+            }
+
+            return File.OpenRead(path);
+        }
+
+        /// <inheritdoc />
         public async Task<string> ReadAllTextAsync(string path, CancellationToken cancellationToken = default)
         {
             if (path == null)

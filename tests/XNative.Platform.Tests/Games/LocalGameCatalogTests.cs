@@ -9,8 +9,10 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using Moq;
 using XNative.Core.Abstractions;
+using XNative.Core.Devices;
 using XNative.Core.Games;
 using XNative.Platform.Games;
+using XNative.Platform.Tests.Executables;
 using Xunit;
 
 namespace XNative.Platform.Tests.Games
@@ -486,6 +488,95 @@ namespace XNative.Platform.Tests.Games
 
             var game = Assert.Single(games);
             Assert.Equal(goodExe, game.ExecutablePath);
+        }
+
+        [Fact]
+        public async Task GetGamesAsync_X64PeExecutable_IsCataloguedWithX64Architecture()
+        {
+            var exePath = Path.Combine(_testRoot, "GameX64", "gamex64.exe");
+            var dirPath = Path.GetDirectoryName(exePath)!;
+
+            _mockFileSystem.Setup(fs => fs.DirectoryExists(_testRoot)).Returns(true);
+            _mockFileSystem.Setup(fs => fs.GetDirectories(_testRoot)).Returns(new[] { dirPath });
+            _mockFileSystem.Setup(fs => fs.GetDirectories(dirPath)).Returns(Array.Empty<string>());
+            _mockFileSystem.Setup(fs => fs.GetFiles(dirPath, "*.exe")).Returns(new[] { exePath });
+            _mockFileSystem.Setup(fs => fs.FileExists(exePath)).Returns(true);
+            _mockFileSystem.Setup(fs => fs.OpenRead(exePath))
+                .Returns(() => new MemoryStream(SyntheticPe.X64GuiExe()));
+
+            var games = await _catalog.GetGamesAsync();
+
+            var game = Assert.Single(games);
+            Assert.Equal(ExecutableType.WindowsExecutable, game.ExecutableType);
+            Assert.Equal(ProcessorArchitecture.X64, game.Architecture);
+        }
+
+        [Fact]
+        public async Task GetGamesAsync_X86PeManifestGame_IsCataloguedWithX86Architecture()
+        {
+            var dirPath = Path.Combine(_testRoot, "GameX86");
+            var manifestPath = Path.Combine(dirPath, "game.json");
+            var exePath = Path.Combine(dirPath, "launcher.exe");
+            var manifestJson = """{"name": "X86 Game", "executable": "launcher.exe"}""";
+
+            _mockFileSystem.Setup(fs => fs.DirectoryExists(_testRoot)).Returns(true);
+            _mockFileSystem.Setup(fs => fs.GetDirectories(_testRoot)).Returns(new[] { dirPath });
+            _mockFileSystem.Setup(fs => fs.GetDirectories(dirPath)).Returns(Array.Empty<string>());
+            _mockFileSystem.Setup(fs => fs.FileExists(manifestPath)).Returns(true);
+            _mockFileSystem.Setup(fs => fs.ReadAllTextAsync(manifestPath, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(manifestJson);
+            _mockFileSystem.Setup(fs => fs.FileExists(exePath)).Returns(true);
+            _mockFileSystem.Setup(fs => fs.OpenRead(exePath))
+                .Returns(() => new MemoryStream(SyntheticPe.X86ConsoleExe()));
+
+            var games = await _catalog.GetGamesAsync();
+
+            var game = Assert.Single(games);
+            Assert.Equal("X86 Game", game.Name);
+            Assert.Equal(ExecutableType.WindowsExecutable, game.ExecutableType);
+            Assert.Equal(ProcessorArchitecture.X86, game.Architecture);
+        }
+
+        [Fact]
+        public async Task GetGamesAsync_NotAPeExecutable_IsStillCataloguedWithUnknownArchitecture()
+        {
+            var exePath = Path.Combine(_testRoot, "GameText", "gametext.exe");
+            var dirPath = Path.GetDirectoryName(exePath)!;
+
+            _mockFileSystem.Setup(fs => fs.DirectoryExists(_testRoot)).Returns(true);
+            _mockFileSystem.Setup(fs => fs.GetDirectories(_testRoot)).Returns(new[] { dirPath });
+            _mockFileSystem.Setup(fs => fs.GetDirectories(dirPath)).Returns(Array.Empty<string>());
+            _mockFileSystem.Setup(fs => fs.GetFiles(dirPath, "*.exe")).Returns(new[] { exePath });
+            _mockFileSystem.Setup(fs => fs.FileExists(exePath)).Returns(true);
+            _mockFileSystem.Setup(fs => fs.OpenRead(exePath))
+                .Returns(() => new MemoryStream(Encoding.UTF8.GetBytes("this is not a PE file at all")));
+
+            var games = await _catalog.GetGamesAsync();
+
+            var game = Assert.Single(games);
+            Assert.Equal(ExecutableType.WindowsExecutable, game.ExecutableType);
+            Assert.Equal(ProcessorArchitecture.Unknown, game.Architecture);
+        }
+
+        [Fact]
+        public async Task GetGamesAsync_OpenReadThrowsIOException_IsStillCataloguedWithUnknownArchitecture()
+        {
+            var exePath = Path.Combine(_testRoot, "GameLocked", "gamelocked.exe");
+            var dirPath = Path.GetDirectoryName(exePath)!;
+
+            _mockFileSystem.Setup(fs => fs.DirectoryExists(_testRoot)).Returns(true);
+            _mockFileSystem.Setup(fs => fs.GetDirectories(_testRoot)).Returns(new[] { dirPath });
+            _mockFileSystem.Setup(fs => fs.GetDirectories(dirPath)).Returns(Array.Empty<string>());
+            _mockFileSystem.Setup(fs => fs.GetFiles(dirPath, "*.exe")).Returns(new[] { exePath });
+            _mockFileSystem.Setup(fs => fs.FileExists(exePath)).Returns(true);
+            _mockFileSystem.Setup(fs => fs.OpenRead(exePath))
+                .Throws(new IOException("file is locked"));
+
+            var games = await _catalog.GetGamesAsync();
+
+            var game = Assert.Single(games);
+            Assert.Equal(ExecutableType.WindowsExecutable, game.ExecutableType);
+            Assert.Equal(ProcessorArchitecture.Unknown, game.Architecture);
         }
 
         private static string ComputeFnv1a64Hex(string value)

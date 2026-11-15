@@ -9,7 +9,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using XNative.Core.Abstractions;
+using XNative.Core.Devices;
 using XNative.Core.Games;
+using XNative.Platform.Executables;
 
 namespace XNative.Platform.Games
 {
@@ -104,10 +106,34 @@ namespace XNative.Platform.Games
     /// single-flight and the published cache is an immutable snapshot,
     /// so concurrent readers always observe a consistent catalog.
     /// </remarks>
+    /// <remarks>
+    /// Executable classification policy: every executable the catalog
+    /// records (from a bare scan or from a manifest) is inspected as a
+    /// portable executable (PE) image. When the inspection succeeds, the
+    /// resulting <see cref="GameInfo"/> carries the parsed
+    /// <see cref="GameInfo.Architecture"/> and the executable type from
+    /// <see cref="ExecutableClassifier"/>. When the file is not a valid
+    /// PE image, or it cannot be read at all (any IO failure), the game
+    /// is still catalogued with the historical defaults
+    /// (<see cref="ExecutableType.WindowsExecutable"/> and
+    /// <see cref="ProcessorArchitecture.Unknown"/>): a file that merely
+    /// looks like an executable must never make the game vanish from
+    /// the catalog, and an inspection failure must never fail a scan.
+    /// </remarks>
     public sealed class LocalGameCatalog : IGameCatalog, IDisposable
     {
+        /// <summary>
+        /// Maximum number of leading bytes of an executable read for PE
+        /// inspection (64 KiB). Real PE headers — the DOS stub, the PE
+        /// signature, the COFF header, the optional header and the
+        /// section table — all live in that window, so capping the read
+        /// keeps scanning a folder of 100 MB executables cheap.
+        /// </summary>
+        private const int PeHeaderWindowBytes = 65536;
+
         private readonly LocalGameCatalogOptions _options;
         private readonly IFileSystemService _fileSystem;
+        private readonly PeFileInspector _peInspector;
         private readonly SemaphoreSlim _refreshLock = new SemaphoreSlim(1, 1);
         private volatile IReadOnlyCollection<GameInfo>? _cachedGames;
 
@@ -117,9 +143,22 @@ namespace XNative.Platform.Games
         /// <param name="options">Catalog configuration options.</param>
         /// <param name="fileSystem">File system abstraction.</param>
         public LocalGameCatalog(IOptions<LocalGameCatalogOptions> options, IFileSystemService fileSystem)
+            : this(options, fileSystem, new PeFileInspector())
+        {
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="LocalGameCatalog"/> class
+        /// with an explicit PE inspector, for testability.
+        /// </summary>
+        /// <param name="options">Catalog configuration options.</param>
+        /// <param name="fileSystem">File system abstraction.</param>
+        /// <param name="peInspector">Inspector used to classify executables.</param>
+        public LocalGameCatalog(IOptions<LocalGameCatalogOptions> options, IFileSystemService fileSystem, PeFileInspector peInspector)
         {
             _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
             _fileSystem = fileSystem ?? throw new ArgumentNullException(nameof(fileSystem));
+            _peInspector = peInspector ?? throw new ArgumentNullException(nameof(peInspector));
         }
 
         /// <summary>
@@ -358,13 +397,15 @@ namespace XNative.Platform.Games
 
                 var name = manifest.Name ?? Path.GetFileNameWithoutExtension(manifest.Executable);
                 var id = GenerateId(name, exePath);
+                var classification = ClassifyExecutable(exePath);
                 return new GameInfo(
                     id,
                     name,
                     exePath,
                     workingDir,
-                    ExecutableType.WindowsExecutable,
+                    classification.ExecutableType,
                     metadata,
+                    architecture: classification.Architecture,
                     launchArguments: string.IsNullOrWhiteSpace(manifest.Arguments) ? null : manifest.Arguments);
             }
             catch (JsonException)
@@ -417,18 +458,88 @@ namespace XNative.Platform.Games
                 var name = Path.GetFileNameWithoutExtension(exePath);
                 var workingDir = Path.GetDirectoryName(exePath) ?? string.Empty;
                 var id = GenerateId(name, exePath);
+                var classification = ClassifyExecutable(exePath);
 
                 return new GameInfo(
                     id,
                     name,
                     exePath,
                     workingDir,
-                    ExecutableType.WindowsExecutable,
-                    null);
+                    classification.ExecutableType,
+                    null,
+                    architecture: classification.Architecture);
             }
             catch
             {
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Classifies an executable by inspecting its PE headers.
+        /// </summary>
+        /// <param name="exePath">Path of the executable to inspect.</param>
+        /// <returns>For a valid PE image, the executable type and
+        /// architecture reported by <see cref="ExecutableClassifier"/>;
+        /// otherwise — invalid PE, a <c>null</c> stream, or any failure
+        /// reading the file — the historical defaults
+        /// (<see cref="ExecutableType.WindowsExecutable"/>,
+        /// <see cref="ProcessorArchitecture.Unknown"/>). This method
+        /// never throws: an inspection failure must never fail a scan
+        /// or make a game vanish from the catalog.</returns>
+        private (ExecutableType ExecutableType, ProcessorArchitecture Architecture) ClassifyExecutable(string exePath)
+        {
+            try
+            {
+                using (var source = _fileSystem.OpenRead(exePath))
+                {
+                    if (source == null)
+                    {
+                        return (ExecutableType.WindowsExecutable, ProcessorArchitecture.Unknown);
+                    }
+
+                    // Copy at most the first PeHeaderWindowBytes bytes:
+                    // real PE headers (DOS stub, PE signature, COFF
+                    // header, optional header, section table) live in
+                    // that window, and capping the read keeps scanning
+                    // a folder of 100 MB executables cheap.
+                    using (var window = new MemoryStream())
+                    {
+                        var buffer = new byte[8192];
+                        var remaining = PeHeaderWindowBytes;
+                        int read;
+                        while (remaining > 0
+                            && (read = source.Read(buffer, 0, Math.Min(buffer.Length, remaining))) > 0)
+                        {
+                            window.Write(buffer, 0, read);
+                            remaining -= read;
+                        }
+
+                        window.Position = 0;
+                        var peInfo = _peInspector.Inspect(window);
+                        if (peInfo == null || !peInfo.IsValid)
+                        {
+                            return (ExecutableType.WindowsExecutable, ProcessorArchitecture.Unknown);
+                        }
+
+                        return ExecutableClassifier.Classify(peInfo);
+                    }
+                }
+            }
+            catch (IOException)
+            {
+                return (ExecutableType.WindowsExecutable, ProcessorArchitecture.Unknown);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return (ExecutableType.WindowsExecutable, ProcessorArchitecture.Unknown);
+            }
+            catch (Exception)
+            {
+                // Any other inspection or IO failure (for example a
+                // stream that throws NotSupportedException) gets the
+                // same fallback: classification is best-effort only.
+                return (ExecutableType.WindowsExecutable, ProcessorArchitecture.Unknown);
             }
         }
 
