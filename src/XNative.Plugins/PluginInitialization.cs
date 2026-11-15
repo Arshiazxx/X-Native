@@ -19,8 +19,12 @@ namespace XNative.Plugins
         Failed = 1,
 
         /// <summary>
-        /// The plugin was not called because an earlier
-        /// <see cref="PluginManager.InitializeAll"/> already attempted it.
+        /// The plugin was not called because this manager already
+        /// attempted this same plugin instance (in this or an earlier
+        /// <see cref="PluginManager.InitializeAll"/> call). A different
+        /// instance claiming an already-attempted ID is
+        /// <see cref="Failed"/> instead: it was never initialized and
+        /// does not own the earlier instance's outcome.
         /// </summary>
         AlreadyInitialized = 2,
     }
