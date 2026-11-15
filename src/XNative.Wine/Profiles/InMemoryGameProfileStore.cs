@@ -1,0 +1,96 @@
+using System;
+using System.Collections.Generic;
+using XNative.Core.Abstractions;
+using XNative.Core.Games;
+
+namespace XNative.Wine.Profiles
+{
+    /// <summary>
+    /// An <see cref="IGameProfileStore"/> backed by a fixed in-memory
+    /// list of profiles supplied at construction time. Matching is by
+    /// executable file name, case-insensitively, and ignores any
+    /// directory portion of either the game's path or the profile's
+    /// executable name, so Windows-style paths (<c>C:\Games\game.exe</c>)
+    /// match correctly on any host operating system.
+    /// </summary>
+    public sealed class InMemoryGameProfileStore : IGameProfileStore
+    {
+        private readonly List<GameProfile> _profiles;
+
+        /// <summary>
+        /// Initializes a new instance of the
+        /// <see cref="InMemoryGameProfileStore"/> class with no profiles.
+        /// </summary>
+        public InMemoryGameProfileStore()
+            : this(new GameProfile[0])
+        {
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the
+        /// <see cref="InMemoryGameProfileStore"/> class.
+        /// </summary>
+        /// <param name="profiles">The profiles the store knows about.</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="profiles"/> or one of its entries is <c>null</c>.</exception>
+        public InMemoryGameProfileStore(IEnumerable<GameProfile> profiles)
+        {
+            if (profiles == null)
+            {
+                throw new ArgumentNullException(nameof(profiles));
+            }
+
+            _profiles = new List<GameProfile>();
+            foreach (GameProfile profile in profiles)
+            {
+                if (profile == null)
+                {
+                    throw new ArgumentNullException(nameof(profiles), "The profile collection must not contain null entries.");
+                }
+
+                _profiles.Add(profile);
+            }
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyCollection<GameProfile> GetProfiles()
+        {
+            return new List<GameProfile>(_profiles);
+        }
+
+        /// <inheritdoc />
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="game"/> is <c>null</c>.</exception>
+        public GameProfile? FindForGame(GameInfo game)
+        {
+            if (game == null)
+            {
+                throw new ArgumentNullException(nameof(game));
+            }
+
+            string executableName = GetFileName(game.ExecutablePath);
+            foreach (GameProfile profile in _profiles)
+            {
+                if (string.Equals(
+                    GetFileName(profile.ExecutableName),
+                    executableName,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    return profile;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Extracts the file-name portion of a path that may use either
+        /// <c>\</c> or <c>/</c> as its directory separator.
+        /// </summary>
+        /// <param name="path">The path to extract from.</param>
+        /// <returns>The file name, or the whole string when it contains no separator.</returns>
+        internal static string GetFileName(string path)
+        {
+            int index = path.LastIndexOfAny(new char[] { '\\', '/' });
+            return index >= 0 ? path.Substring(index + 1) : path;
+        }
+    }
+}

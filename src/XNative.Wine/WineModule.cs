@@ -1,5 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using XNative.Core.Abstractions;
+using XNative.Core.Games;
+using XNative.Wine.Profiles;
 using XNative.Wine.Runtime;
 
 namespace XNative.Wine
@@ -17,7 +19,9 @@ namespace XNative.Wine
         public static IServiceCollection AddXNativeWine(this IServiceCollection services)
         {
             services.AddSingleton<IModuleDescriptor, WineModuleDescriptor>();
+            services.AddSingleton<IGameProfileStore>(_ => new InMemoryGameProfileStore(new GameProfile[0]));
             services.AddSingleton<IGameRunner, CompatibilityGameRunner>();
+            services.AddSingleton<ICompatibilityLayer, WineCompatibilityLayer>();
             return services;
         }
     }
