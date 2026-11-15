@@ -23,19 +23,11 @@ Warnings are errors in this repo (`TreatWarningsAsErrors` in
 `Directory.Build.props`, analyzers at `latest`), so a clean build means a
 warning-free build.
 
-One caveat on the test step: the solution references only four of the eight
-test projects (`XNative.Core.Tests`, `XNative.Platform.Tests`,
-`XNative.UI.Tests`, `XNative.Wine.Tests`), so `dotnet test X-Native.sln`
-runs those four and **silently skips** `XNative.App.Tests`,
-`XNative.Graphics.Tests`, `XNative.Plugins.Tests`, and
-`XNative.Integration.Tests`. To run the whole suite, test each project
-explicitly:
-
-```bash
-for proj in tests/*/*.csproj; do
-  dotnet test "$proj" -c Release
-done
-```
+The solution references all eight test projects, so
+`dotnet test X-Native.sln` runs the whole suite. (It previously referenced
+only four — Core, Platform, UI, and Wine tests — and silently skipped the
+rest; if you are working from an older checkout, test each project
+explicitly with `for proj in tests/*/*.csproj; do dotnet test "$proj" -c Release; done`.)
 
 The source of truth for which test projects exist is the `TEST_PROJECTS`
 list at the top of [.github/workflows/ci.yml](../.github/workflows/ci.yml);

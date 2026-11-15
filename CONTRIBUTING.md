@@ -32,17 +32,10 @@ dotnet build X-Native.sln -c Release
 dotnet test X-Native.sln -c Release
 ```
 
-Note that the solution references only four of the eight test projects, so
-the `dotnet test` step above runs those four and silently skips
-`XNative.App.Tests`, `XNative.Graphics.Tests`, `XNative.Plugins.Tests`,
-and `XNative.Integration.Tests`. Run every test project before opening a
-PR:
-
-```bash
-for proj in tests/*/*.csproj; do
-  dotnet test "$proj" -c Release
-done
-```
+The solution references all eight test projects, so the `dotnet test`
+step above runs the whole suite. (Older checkouts referenced only four —
+on those, run every project explicitly:
+`for proj in tests/*/*.csproj; do dotnet test "$proj" -c Release; done`.)
 
 The `TEST_PROJECTS` list at the top of
 [.github/workflows/ci.yml](.github/workflows/ci.yml) is the source of truth
