@@ -64,6 +64,16 @@ namespace XNative.Platform.Executables
         // below it. Zero sections is equally impossible for an image.
         private const int MaximumSections = 96;
 
+        // Upper bound on how much of a stream Inspect(Stream) will read:
+        // 1 MiB (1,048,576 bytes). The parser only ever reads header bytes,
+        // and a DOS stub, the PE signature, the COFF header, the optional
+        // header and the maximum 96 section headers (96 * 40 = 3,840 bytes)
+        // fit comfortably inside this window. Anything beyond it is data
+        // the parser never reads, so buffering it would only waste memory
+        // — and an unbounded read would let a multi-gigabyte or
+        // non-terminating stream exhaust the host's memory.
+        private const int MaximumHeaderBytes = 1024 * 1024;
+
         /// <summary>
         /// Inspects an in-memory byte array as a PE image.
         /// </summary>
@@ -82,11 +92,20 @@ namespace XNative.Platform.Executables
         }
 
         /// <summary>
-        /// Inspects a stream as a PE image. The stream is read from its
-        /// current position to its end into memory and is <b>not</b> closed
-        /// or disposed; ownership stays with the caller.
+        /// Inspects a stream as a PE image. At most 1 MiB (1,048,576 bytes)
+        /// is read from the stream's current position: the parser only ever
+        /// reads header bytes, and the DOS stub, PE signature, COFF header,
+        /// optional header and the maximum 96 section headers fit
+        /// comfortably inside that window, so anything beyond it is data
+        /// the parser never reads. Capping the read also means a
+        /// multi-gigabyte or non-terminating stream cannot exhaust memory;
+        /// if the stream is longer than the window, only the window is
+        /// parsed and the existing bounds checks report truncation as a
+        /// clean invalid result. No further read is attempted once the
+        /// window is full. The stream is <b>not</b> closed or disposed;
+        /// ownership stays with the caller.
         /// </summary>
-        /// <param name="stream">The stream to read the file contents from.</param>
+        /// <param name="stream">The stream to read the header window from.</param>
         /// <returns>The inspection result; invalid input yields
         /// <see cref="PeInfo.IsValid"/> = <c>false</c> with an error.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="stream"/> is <c>null</c>.</exception>
@@ -97,20 +116,37 @@ namespace XNative.Platform.Executables
                 throw new ArgumentNullException(nameof(stream));
             }
 
-            byte[] data;
-            using (var buffer = new MemoryStream())
+            // Read incrementally into a single fixed-size buffer. Stream.Read
+            // is allowed to return fewer bytes than requested, so loop until
+            // the buffer is full or Read returns 0 (end of stream). When the
+            // buffer fills, the loop condition ends the reading with no
+            // extra probe read, so exactly MaximumHeaderBytes — never more —
+            // are consumed from a longer stream.
+            var buffer = new byte[MaximumHeaderBytes];
+            int totalRead = 0;
+            while (totalRead < buffer.Length)
             {
-                stream.CopyTo(buffer);
-                data = buffer.ToArray();
+                int read = stream.Read(buffer, totalRead, buffer.Length - totalRead);
+                if (read <= 0)
+                {
+                    break;
+                }
+
+                totalRead += read;
             }
 
-            return Parse(data);
+            return Parse(buffer, totalRead);
         }
 
         private static PeInfo Parse(byte[] data)
         {
+            return Parse(data, data.Length);
+        }
+
+        private static PeInfo Parse(byte[] data, int length)
+        {
             // ---- DOS header -------------------------------------------------
-            if (data.Length < MinimumDosHeaderSize)
+            if (length < MinimumDosHeaderSize)
             {
                 return PeInfo.Invalid("File is too small to contain a DOS header.");
             }
@@ -130,7 +166,7 @@ namespace XNative.Platform.Executables
 
             // The PE signature (4 bytes) plus the COFF header (20 bytes)
             // must fit starting at e_lfanew.
-            if ((long)peHeaderOffset + 4 + CoffHeaderSize > data.Length)
+            if ((long)peHeaderOffset + 4 + CoffHeaderSize > length)
             {
                 return PeInfo.Invalid("DOS e_lfanew points past the end of the file.");
             }
@@ -166,7 +202,7 @@ namespace XNative.Platform.Executables
                     numberOfSections);
             }
 
-            if ((long)optionalOffset + sizeOfOptionalHeader > data.Length)
+            if ((long)optionalOffset + sizeOfOptionalHeader > length)
             {
                 return PeInfo.Invalid(
                     "Optional header is truncated.",
@@ -285,13 +321,13 @@ namespace XNative.Platform.Executables
 
         private static ushort ReadUInt16(byte[] data, int offset)
         {
-            // Callers guarantee offset + 2 <= data.Length.
+            // Callers guarantee offset + 2 <= the validated length.
             return (ushort)(data[offset] | (data[offset + 1] << 8));
         }
 
         private static int ReadInt32(byte[] data, int offset)
         {
-            // Callers guarantee offset + 4 <= data.Length.
+            // Callers guarantee offset + 4 <= the validated length.
             return data[offset]
                 | (data[offset + 1] << 8)
                 | (data[offset + 2] << 16)
@@ -300,7 +336,7 @@ namespace XNative.Platform.Executables
 
         private static uint ReadUInt32(byte[] data, int offset)
         {
-            // Callers guarantee offset + 4 <= data.Length.
+            // Callers guarantee offset + 4 <= the validated length.
             return (uint)ReadInt32(data, offset);
         }
     }
