@@ -53,6 +53,8 @@ dotnet run --project src/XNative.App -c Release -- info [path]
 dotnet run --project src/XNative.App -c Release -- scan [path]
 dotnet run --project src/XNative.App -c Release -- inspect <exe>
 dotnet run --project src/XNative.App -c Release -- launch <id|path>
+dotnet run --project src/XNative.App -c Release -- settings show
+dotnet run --project src/XNative.App -c Release -- settings reset
 dotnet run --project src/XNative.App -c Release -- help
 ```
 
@@ -68,6 +70,11 @@ dotnet run --project src/XNative.App -c Release -- help
   game runner and prints the structured result. No compatibility backend
   can run a PC game yet, so a failure result with its reason is the honest
   outcome today; the exit code is non-zero when the launch fails.
+- `settings show` prints the effective persisted settings (games root,
+  minimum log level, scan depth, executable patterns) including which
+  source won the games root; `settings reset` restores the defaults. The
+  head loads settings before composing — precedence is command-line path,
+  then the settings file, then the platform default.
 
 Exit codes are `0` for success, `1` for failure, and `2` for a usage
 error.
