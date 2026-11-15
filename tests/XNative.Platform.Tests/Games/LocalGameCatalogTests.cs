@@ -579,6 +579,96 @@ namespace XNative.Platform.Tests.Games
             Assert.Equal(ProcessorArchitecture.Unknown, game.Architecture);
         }
 
+        [Fact]
+        public async Task GetGamesAsync_WhitespaceNameManifest_IsSkippedAndScanContinues()
+        {
+            // A manifest whose name is whitespace makes the GameInfo
+            // constructor throw ArgumentException; that must skip only
+            // that manifest, never the whole scan.
+            var badDir = Path.Combine(_testRoot, "BadGame");
+            var badManifestPath = Path.Combine(badDir, "game.json");
+            var badExePath = Path.Combine(badDir, "bad.bin");
+            var badManifestJson = """{"name": "   ", "executable": "bad.bin"}""";
+
+            var goodDir = Path.Combine(_testRoot, "GoodGame");
+            var goodExePath = Path.Combine(goodDir, "good.exe");
+
+            _mockFileSystem.Setup(fs => fs.DirectoryExists(_testRoot)).Returns(true);
+            _mockFileSystem.Setup(fs => fs.GetDirectories(_testRoot)).Returns(new[] { badDir, goodDir });
+            _mockFileSystem.Setup(fs => fs.GetDirectories(badDir)).Returns(Array.Empty<string>());
+            _mockFileSystem.Setup(fs => fs.GetDirectories(goodDir)).Returns(Array.Empty<string>());
+
+            _mockFileSystem.Setup(fs => fs.FileExists(badManifestPath)).Returns(true);
+            _mockFileSystem.Setup(fs => fs.ReadAllTextAsync(badManifestPath, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(badManifestJson);
+            _mockFileSystem.Setup(fs => fs.FileExists(badExePath)).Returns(true);
+            _mockFileSystem.Setup(fs => fs.GetFiles(badDir, "*.exe")).Returns(Array.Empty<string>());
+
+            _mockFileSystem.Setup(fs => fs.FileExists(Path.Combine(goodDir, "game.json"))).Returns(false);
+            _mockFileSystem.Setup(fs => fs.GetFiles(goodDir, "*.exe")).Returns(new[] { goodExePath });
+            _mockFileSystem.Setup(fs => fs.FileExists(goodExePath)).Returns(true);
+            _mockFileSystem.Setup(fs => fs.OpenRead(goodExePath))
+                .Returns(() => new MemoryStream(Encoding.UTF8.GetBytes("not a PE")));
+
+            var games = await _catalog.GetGamesAsync();
+
+            var game = Assert.Single(games);
+            Assert.Equal(goodExePath, game.ExecutablePath);
+        }
+
+        [Fact]
+        public void Dispose_IsIdempotent_AndConcurrentDisposeDoesNotThrow()
+        {
+            var catalog = new LocalGameCatalog(Options.Create(_options), _mockFileSystem.Object);
+
+            catalog.Dispose();
+            catalog.Dispose();
+            Parallel.Invoke(catalog.Dispose, catalog.Dispose, catalog.Dispose);
+        }
+
+        [Fact]
+        public async Task RefreshAsync_AfterDispose_ReturnsWithoutThrowing()
+        {
+            var catalog = new LocalGameCatalog(Options.Create(_options), _mockFileSystem.Object);
+            catalog.Dispose();
+
+            await catalog.RefreshAsync();
+
+            var games = await catalog.GetGamesAsync();
+            Assert.Empty(games);
+        }
+
+        [Fact]
+        public async Task Dispose_DuringInFlightRefresh_RefreshCompletesWithoutThrowing()
+        {
+            var entered = new ManualResetEventSlim(false);
+            var gate = new ManualResetEventSlim(false);
+            var mock = new Mock<IFileSystemService>();
+            mock.Setup(fs => fs.DirectoryExists(_testRoot)).Returns(() =>
+            {
+                entered.Set();
+                gate.Wait(TimeSpan.FromSeconds(30));
+                return true;
+            });
+            mock.Setup(fs => fs.GetDirectories(_testRoot)).Returns(Array.Empty<string>());
+            mock.Setup(fs => fs.GetFiles(_testRoot, "*.exe")).Returns(Array.Empty<string>());
+            mock.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(false);
+
+            var catalog = new LocalGameCatalog(Options.Create(_options), mock.Object);
+
+            Task refresh = catalog.RefreshAsync();
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(10)));
+
+            catalog.Dispose();
+            gate.Set();
+
+            // The in-flight refresh observes the disposal without an
+            // ObjectDisposedException escaping the catalog operation.
+            await refresh;
+
+            catalog.Dispose();
+        }
+
         private static string ComputeFnv1a64Hex(string value)
         {
             var bytes = Encoding.UTF8.GetBytes(value);

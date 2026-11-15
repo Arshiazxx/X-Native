@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -14,12 +16,18 @@ namespace XNative.Platform.Storage
     /// plain file names: any key containing a directory separator, a
     /// <c>..</c> traversal segment, a rooted path, or only whitespace is
     /// rejected with <see cref="ArgumentException"/> so a caller can
-    /// never escape the storage root. Writes are atomic: the value is
-    /// written to a temporary file in the same directory and then
-    /// swapped into place.
+    /// never escape the storage root. Keys that would alias a different
+    /// file on Windows are rejected too: reserved DOS device names
+    /// (<c>CON</c>, <c>NUL</c>, <c>COM1</c>, …) and names ending in a
+    /// dot or a space, which the Windows file system strips. Writes are
+    /// atomic: the value is written to a temporary file in the same
+    /// directory and then swapped into place.
     /// </summary>
     public sealed class FileStorageService : IStorageService
     {
+        private static readonly HashSet<string> ReservedDeviceNames =
+            BuildReservedDeviceNames();
+
         private readonly FileStorageServiceOptions _options;
         private readonly object _writeLock = new object();
 
@@ -212,6 +220,52 @@ namespace XNative.Platform.Storage
             {
                 throw new ArgumentException("Storage key must be a plain file name.", nameof(key));
             }
+
+            // Windows strips trailing dots and spaces from file names,
+            // so such a key would silently address a different file
+            // than the one it names.
+            if (key.EndsWith(".", StringComparison.Ordinal)
+                || key.EndsWith(" ", StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    "Storage key cannot end with a dot or a space.", nameof(key));
+            }
+
+            // Reserved DOS device names alias devices instead of files
+            // on Windows, with or without an extension ("con",
+            // "NUL.txt"). Only COM1-9 / LPT1-9 are reserved; names that
+            // merely start alike ("console.log", "com10.txt") are fine.
+            string baseName = key;
+            int extensionIndex = key.IndexOf('.');
+            if (extensionIndex >= 0)
+            {
+                baseName = key.Substring(0, extensionIndex);
+            }
+
+            if (ReservedDeviceNames.Contains(baseName))
+            {
+                throw new ArgumentException(
+                    "Storage key cannot be a reserved device name.", nameof(key));
+            }
+        }
+
+        private static HashSet<string> BuildReservedDeviceNames()
+        {
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "CON",
+                "PRN",
+                "AUX",
+                "NUL",
+            };
+
+            for (int i = 1; i <= 9; i++)
+            {
+                names.Add("COM" + i.ToString(CultureInfo.InvariantCulture));
+                names.Add("LPT" + i.ToString(CultureInfo.InvariantCulture));
+            }
+
+            return names;
         }
     }
 }

@@ -1,5 +1,7 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using XNative.Core.Processes;
 using XNative.Platform.Processes;
@@ -92,6 +94,111 @@ namespace XNative.Platform.Tests.Processes
                 await Assert.ThrowsAsync<ArgumentNullException>(
                     () => service.StartAsync(null!));
             }
+        }
+
+        [Fact]
+        public async Task Stop_CancelledDuringGracePeriod_KeepsProcessTrackedAndStoppable()
+        {
+            using (var service = new SystemProcessService())
+            {
+                RunningProcess started = await service.StartAsync(SleeperRequest());
+
+                // The grace period is 2s; cancelling well inside it
+                // must not orphan the still-running process.
+                using (var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(300)))
+                {
+                    await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                        () => service.StopAsync(started.Id, cts.Token));
+                }
+
+                RunningProcess? stillTracked = service.GetRunningProcess(started.Id);
+                Assert.NotNull(stillTracked);
+                Assert.False(stillTracked!.HasExited);
+
+                // And a later stop can still kill it.
+                Assert.True(await service.StopAsync(started.Id));
+                Assert.Null(service.GetRunningProcess(started.Id));
+            }
+        }
+
+        [Fact]
+        public async Task GetRunningProcess_ExitedProcess_IsReportedOnceThenPruned()
+        {
+            using (var service = new SystemProcessService())
+            {
+                RunningProcess started = await service.StartAsync(ExitImmediatelyRequest());
+
+                RunningProcess? snapshot = null;
+                for (int i = 0; i < 100; i++)
+                {
+                    snapshot = service.GetRunningProcess(started.Id);
+                    if (snapshot != null && snapshot.HasExited)
+                    {
+                        break;
+                    }
+
+                    await Task.Delay(50);
+                }
+
+                Assert.NotNull(snapshot);
+                Assert.True(snapshot!.HasExited);
+                Assert.Equal(0, snapshot.ExitCode);
+
+                // The exit was reported; the entry is now pruned.
+                Assert.Null(service.GetRunningProcess(started.Id));
+            }
+        }
+
+        [Fact]
+        public async Task Start_PrunesPreviouslyExitedProcesses()
+        {
+            using (var service = new SystemProcessService())
+            {
+                RunningProcess first = await service.StartAsync(ExitImmediatelyRequest());
+
+                // Wait for the first process to exit WITHOUT observing
+                // it through the service (observing an exit through
+                // GetRunningProcess prunes it on its own).
+                await WaitForRawProcessExit(first.Id);
+
+                RunningProcess second = await service.StartAsync(SleeperRequest());
+                try
+                {
+                    // Starting the second process swept the exited
+                    // first one out of the tracking table.
+                    Assert.Null(service.GetRunningProcess(first.Id));
+                }
+                finally
+                {
+                    await service.StopAsync(second.Id);
+                }
+            }
+        }
+
+        private static async Task WaitForRawProcessExit(int processId)
+        {
+            for (int i = 0; i < 100; i++)
+            {
+                try
+                {
+                    using (Process process = Process.GetProcessById(processId))
+                    {
+                        if (process.HasExited)
+                        {
+                            return;
+                        }
+                    }
+                }
+                catch (ArgumentException)
+                {
+                    // No such process anymore: it has exited.
+                    return;
+                }
+
+                await Task.Delay(50);
+            }
+
+            throw new TimeoutException("Process " + processId + " did not exit in time.");
         }
     }
 }

@@ -106,5 +106,54 @@ namespace XNative.Platform.Tests.Storage
             await Assert.ThrowsAsync<ArgumentNullException>(
                 () => _service.WriteTextAsync(null!, "x"));
         }
+
+        [Theory]
+        [InlineData("con")]
+        [InlineData("CON")]
+        [InlineData("nul")]
+        [InlineData("nul.txt")]
+        [InlineData("aux")]
+        [InlineData("prn.log")]
+        [InlineData("com1")]
+        [InlineData("COM9.txt")]
+        [InlineData("lpt1")]
+        [InlineData("Lpt3.dat")]
+        public async Task Write_RejectsReservedDeviceNames(string key)
+        {
+            await Assert.ThrowsAnyAsync<ArgumentException>(
+                () => _service.WriteTextAsync(key, "x"));
+            await Assert.ThrowsAnyAsync<ArgumentException>(
+                () => _service.ReadTextAsync(key));
+            await Assert.ThrowsAnyAsync<ArgumentException>(
+                () => _service.ExistsAsync(key));
+            await Assert.ThrowsAnyAsync<ArgumentException>(
+                () => _service.DeleteAsync(key));
+        }
+
+        [Theory]
+        [InlineData("data.")]
+        [InlineData("data ")]
+        [InlineData("file. ")]
+        [InlineData(".")]
+        public async Task Write_RejectsKeysEndingInDotOrSpace(string key)
+        {
+            await Assert.ThrowsAnyAsync<ArgumentException>(
+                () => _service.WriteTextAsync(key, "x"));
+            await Assert.ThrowsAnyAsync<ArgumentException>(
+                () => _service.ReadTextAsync(key));
+        }
+
+        [Theory]
+        [InlineData("console.log")]
+        [InlineData("contact.txt")]
+        [InlineData("com10.txt")]
+        [InlineData("lpt.txt")]
+        [InlineData("data.json")]
+        public async Task Write_AcceptsKeysThatMerelyResembleReservedNames(string key)
+        {
+            await _service.WriteTextAsync(key, "v");
+
+            Assert.Equal("v", await _service.ReadTextAsync(key));
+        }
     }
 }

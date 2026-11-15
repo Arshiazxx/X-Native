@@ -13,6 +13,12 @@ namespace XNative.Platform.Processes
     /// <see cref="System.Diagnostics.Process"/>. Started processes are
     /// tracked in a concurrent dictionary; snapshots are rebuilt on every
     /// <see cref="GetRunningProcess"/> call so exit state is fresh.
+    /// Exited processes are pruned so their handles do not accumulate
+    /// for the life of the service: <see cref="StartAsync"/> sweeps out
+    /// every exited entry before starting a new process, and
+    /// <see cref="GetRunningProcess"/> reports an exited process once
+    /// and then prunes it (a later call for the same identifier returns
+    /// <c>null</c>).
     /// The service owns the tracked <see cref="Process"/> objects and is
     /// <see cref="IDisposable"/>: register it as a singleton so the DI
     /// container disposes it (and every still-tracked process handle)
@@ -48,6 +54,8 @@ namespace XNative.Platform.Processes
 
             ThrowIfDisposed();
             cancellationToken.ThrowIfCancellationRequested();
+
+            PruneExitedProcesses();
 
             var startInfo = new ProcessStartInfo
             {
@@ -101,10 +109,25 @@ namespace XNative.Platform.Processes
                 return null;
             }
 
-            return Snapshot(process);
+            RunningProcess snapshot = Snapshot(process);
+            if (snapshot.HasExited)
+            {
+                // The exit has now been observed, so prune the entry:
+                // an exited process nobody looks at again must not keep
+                // its handle for the life of the service.
+                RemoveAndDispose(processId, process);
+            }
+
+            return snapshot;
         }
 
         /// <inheritdoc />
+        /// <remarks>
+        /// Cancelling <paramref name="cancellationToken"/> during the
+        /// grace period leaves the process running and tracked; the
+        /// entry is removed only once the process has exited or
+        /// <see cref="Process.Kill"/> has been issued.
+        /// </remarks>
         public async Task<bool> StopAsync(
             int processId,
             CancellationToken cancellationToken = default)
@@ -118,42 +141,59 @@ namespace XNative.Platform.Processes
                 return true;
             }
 
+            if (SafeHasExited(process))
+            {
+                RemoveAndDispose(processId, process);
+                return true;
+            }
+
+            // There is no cooperative close for a headless child
+            // started with UseShellExecute=false, so the grace
+            // period is a wait for voluntary exit before Kill().
+            // If this wait is cancelled, the process is still running
+            // and MUST stay tracked: cancelling a stop must never make
+            // a process less stoppable, so the
+            // OperationCanceledException propagates with the entry
+            // untouched and a later StopAsync (or Dispose) can still
+            // kill the process.
+            if (await WaitForExitAsync(process, GracePeriod, cancellationToken).ConfigureAwait(false))
+            {
+                RemoveAndDispose(processId, process);
+                return true;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+
             try
             {
-                if (SafeHasExited(process))
-                {
-                    return true;
-                }
-
-                // There is no cooperative close for a headless child
-                // started with UseShellExecute=false, so the grace
-                // period is a wait for voluntary exit before Kill().
-                if (await WaitForExitAsync(process, GracePeriod, cancellationToken).ConfigureAwait(false))
-                {
-                    return true;
-                }
-
-                cancellationToken.ThrowIfCancellationRequested();
-
-                try
-                {
-                    process.Kill();
-                }
-                catch (InvalidOperationException)
-                {
-                    // Raced with a natural exit.
-                    return SafeHasExited(process);
-                }
-
-                return await WaitForExitAsync(process, KillWaitPeriod, cancellationToken).ConfigureAwait(false);
+                process.Kill();
             }
-            finally
+            catch (InvalidOperationException)
             {
-                Process removed;
-                if (_processes.TryRemove(processId, out removed))
+                // Raced with a natural exit.
+                bool exited = SafeHasExited(process);
+                if (exited)
                 {
-                    removed.Dispose();
+                    RemoveAndDispose(processId, process);
                 }
+
+                return exited;
+            }
+
+            // Kill() has been issued, so the process is terminating
+            // whether or not we stay to watch it: the entry is always
+            // removed from here on, even when the post-kill wait is
+            // cancelled — keeping the handle would only leak it.
+            try
+            {
+                bool exited = await WaitForExitAsync(process, KillWaitPeriod, cancellationToken).ConfigureAwait(false);
+                RemoveAndDispose(processId, process);
+                return exited;
+            }
+            catch (OperationCanceledException)
+            {
+                RemoveAndDispose(processId, process);
+                throw;
             }
         }
 
@@ -177,6 +217,37 @@ namespace XNative.Platform.Processes
             }
 
             _processes.Clear();
+        }
+
+        private void PruneExitedProcesses()
+        {
+            foreach (var pair in _processes)
+            {
+                if (SafeHasExited(pair.Value))
+                {
+                    RemoveAndDispose(pair.Key, pair.Value);
+                }
+            }
+        }
+
+        private void RemoveAndDispose(int processId, Process process)
+        {
+            Process removed;
+            if (!_processes.TryRemove(processId, out removed))
+            {
+                return;
+            }
+
+            if (ReferenceEquals(removed, process))
+            {
+                removed.Dispose();
+                return;
+            }
+
+            // A different process was registered under the same
+            // identifier in the meantime (the OS reused the PID): put
+            // it back rather than orphaning a live process.
+            _processes[processId] = removed;
         }
 
         private static RunningProcess Snapshot(Process process)

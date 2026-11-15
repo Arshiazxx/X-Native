@@ -93,6 +93,53 @@ namespace XNative.Platform.Tests.Logging
             Assert.Contains("cannot write this", log.BufferedEntries[0]);
         }
 
+        [Theory]
+        [InlineData("../evil.log")]
+        [InlineData("..\\evil.log")]
+        [InlineData("sub/evil.log")]
+        [InlineData("sub\\evil.log")]
+        [InlineData("a..b.log")]
+        public void Constructor_RejectsFileNameWithSeparatorsOrTraversal(string fileName)
+        {
+            Assert.Throws<ArgumentException>(
+                () => new FileLogService(new FileLogServiceOptions
+                {
+                    LogDirectory = _root,
+                    FileName = fileName,
+                }));
+            Assert.Throws<ArgumentException>(
+                () => new FileLogService(Options.Create(new FileLogServiceOptions
+                {
+                    LogDirectory = _root,
+                    FileName = fileName,
+                })));
+        }
+
+        [Fact]
+        public void Constructor_RejectsRootedFileName()
+        {
+            string rooted = Path.GetFullPath(Path.Combine(_root, "evil.log"));
+
+            Assert.Throws<ArgumentException>(
+                () => new FileLogService(new FileLogServiceOptions
+                {
+                    LogDirectory = _root,
+                    FileName = rooted,
+                }));
+        }
+
+        [Fact]
+        public void Constructor_AcceptsPlainFileName_AndLogFilePathCombinesIt()
+        {
+            var log = new FileLogService(new FileLogServiceOptions
+            {
+                LogDirectory = _root,
+                FileName = "custom.log",
+            });
+
+            Assert.Equal(Path.Combine(_root, "custom.log"), log.LogFilePath);
+        }
+
         [Fact]
         public void NullLogService_DiscardsEverythingAndNeverThrows()
         {

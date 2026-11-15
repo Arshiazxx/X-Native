@@ -242,6 +242,48 @@ namespace XNative.Wine.Tests.Runtime
         }
 
         [Fact]
+        public async Task LaunchAsync_WorkingDirectorySupplied_IsLoggedAsNotApplied()
+        {
+            var log = new FakeLogService();
+            var runner = CreateRunner(new FakeFileSystemService(GamePath), log);
+
+            LaunchResult result = await runner.LaunchAsync(
+                CreateGame(), new LaunchOptions { WorkingDirectory = @"C:\Elsewhere" });
+
+            // No behaviour change: the launch still ends in the same
+            // structured failure, but the ignored option is on record.
+            Assert.Equal(LaunchFailureReason.BackendNotImplemented, result.Reason);
+            Assert.True(log.Contains("not applied"));
+            Assert.True(log.Contains(@"C:\Elsewhere"));
+        }
+
+        [Fact]
+        public async Task LaunchAsync_EnvironmentVariablesSupplied_AreLoggedAsNotApplied()
+        {
+            var log = new FakeLogService();
+            var runner = CreateRunner(new FakeFileSystemService(GamePath), log);
+            var options = new LaunchOptions();
+            options.EnvironmentVariables["XNATIVE_FOO"] = "bar";
+
+            LaunchResult result = await runner.LaunchAsync(CreateGame(), options);
+
+            Assert.Equal(LaunchFailureReason.BackendNotImplemented, result.Reason);
+            Assert.True(log.Contains("EnvironmentVariables"));
+            Assert.True(log.Contains("not applied"));
+        }
+
+        [Fact]
+        public async Task LaunchAsync_NoUnappliedOptions_LogsNoNotAppliedWarning()
+        {
+            var log = new FakeLogService();
+            var runner = CreateRunner(new FakeFileSystemService(GamePath), log);
+
+            await runner.LaunchAsync(CreateGame(), LaunchOptions.Default);
+
+            Assert.False(log.Contains("not applied"));
+        }
+
+        [Fact]
         public async Task ParameterlessRunner_ReportsStructuredReasons()
         {
             var runner = new CompatibilityGameRunner();

@@ -120,6 +120,17 @@ namespace XNative.Platform.Games
     /// looks like an executable must never make the game vanish from
     /// the catalog, and an inspection failure must never fail a scan.
     /// </remarks>
+    /// <remarks>
+    /// Disposal: <see cref="Dispose"/> is idempotent, safe to call from
+    /// several threads at once, and safe to call while a refresh is in
+    /// flight. An in-flight refresh either runs to completion and
+    /// publishes its snapshot, or observes the disposal and returns
+    /// without scanning; it never throws
+    /// <see cref="ObjectDisposedException"/> out of the catalog and
+    /// never corrupts the published snapshot. Refreshes started after
+    /// disposal return immediately, and readers keep the last published
+    /// snapshot (or an empty catalog when none was published).
+    /// </remarks>
     public sealed class LocalGameCatalog : IGameCatalog, IDisposable
     {
         /// <summary>
@@ -136,6 +147,10 @@ namespace XNative.Platform.Games
         private readonly PeFileInspector _peInspector;
         private readonly SemaphoreSlim _refreshLock = new SemaphoreSlim(1, 1);
         private volatile IReadOnlyCollection<GameInfo>? _cachedGames;
+
+        // 0 = alive, 1 = disposed. Manipulated only through Interlocked
+        // / Volatile so Dispose can race an in-flight refresh safely.
+        private int _disposed;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="LocalGameCatalog"/> class.
@@ -163,27 +178,20 @@ namespace XNative.Platform.Games
 
         /// <summary>
         /// Releases the synchronization resources held by the catalog.
+        /// Idempotent and thread-safe: only the first call disposes the
+        /// refresh lock, and calling it while a refresh is in flight is
+        /// safe — the refresh completes or observes the disposal
+        /// without throwing (see the class remarks).
         /// </summary>
         public void Dispose()
         {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        /// <summary>
-        /// Releases the unmanaged resources used by the catalog and,
-        /// when <paramref name="disposing"/> is <c>true</c>, its managed
-        /// resources.
-        /// </summary>
-        /// <param name="disposing"><c>true</c> to release both managed
-        /// and unmanaged resources; <c>false</c> to release only
-        /// unmanaged resources.</param>
-        private void Dispose(bool disposing)
-        {
-            if (disposing)
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
             {
-                _refreshLock.Dispose();
+                return;
             }
+
+            _refreshLock.Dispose();
+            GC.SuppressFinalize(this);
         }
 
         /// <inheritdoc />
@@ -226,9 +234,32 @@ namespace XNative.Platform.Games
         /// <inheritdoc />
         public async Task RefreshAsync(CancellationToken cancellationToken = default)
         {
-            await _refreshLock.WaitAsync(cancellationToken);
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                // Disposed catalogs do not scan again; readers keep
+                // whatever snapshot was last published.
+                return;
+            }
+
             try
             {
+                await _refreshLock.WaitAsync(cancellationToken);
+            }
+            catch (ObjectDisposedException)
+            {
+                // Lost the race with Dispose() while waiting for the
+                // lock: the catalog is gone, so the refresh simply
+                // does not happen.
+                return;
+            }
+
+            try
+            {
+                if (Volatile.Read(ref _disposed) != 0)
+                {
+                    return;
+                }
+
                 var games = new List<GameInfo>();
 
                 if (!string.IsNullOrWhiteSpace(_options.RootPath)
@@ -244,7 +275,16 @@ namespace XNative.Platform.Games
             }
             finally
             {
-                _refreshLock.Release();
+                try
+                {
+                    _refreshLock.Release();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Dispose() ran while this refresh was in flight
+                    // and disposed the semaphore underneath it; there
+                    // is nothing left to release into.
+                }
             }
         }
 

@@ -52,6 +52,8 @@ namespace XNative.Wine.Runtime
 
             Log(log, LogLevel.Information, "Launch requested for '" + game.Name + "' (" + game.ExecutablePath + ").");
 
+            LogUnappliedOptions(log, game, effectiveOptions);
+
             if (game.ExecutableType != ExecutableType.WindowsExecutable)
             {
                 return Fail(log, "Executable type '" + game.ExecutableType + "' is not supported.", LaunchFailureReason.UnsupportedExecutableType);
@@ -89,6 +91,24 @@ namespace XNative.Wine.Runtime
                 ? "Windows executable detected. Compatibility backend not implemented. Profile rating: " + profile.Rating + "."
                 : "Windows executable detected. Compatibility backend not implemented.";
             return Fail(log, backendMessage, LaunchFailureReason.BackendNotImplemented);
+        }
+
+        private static void LogUnappliedOptions(ILogService? log, GameInfo game, LaunchOptions options)
+        {
+            // WorkingDirectory and EnvironmentVariables are part of the
+            // LaunchOptions contract, but no compatibility backend
+            // exists yet that could apply them. Acknowledge them in the
+            // log instead of silently dropping them, so a caller who
+            // supplied them can see they had no effect on the launch.
+            if (!string.IsNullOrWhiteSpace(options.WorkingDirectory))
+            {
+                Log(log, LogLevel.Warning, "Launch option WorkingDirectory '" + options.WorkingDirectory + "' was supplied for '" + game.Name + "' but is not applied by the current compatibility backend.");
+            }
+
+            if (options.EnvironmentVariables != null && options.EnvironmentVariables.Count > 0)
+            {
+                Log(log, LogLevel.Warning, "Launch option EnvironmentVariables (" + options.EnvironmentVariables.Count + " variable(s)) were supplied for '" + game.Name + "' but are not applied by the current compatibility backend.");
+            }
         }
 
         private static GameProfile? ResolveProfile(

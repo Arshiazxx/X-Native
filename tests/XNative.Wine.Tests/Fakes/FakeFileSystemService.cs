@@ -39,6 +39,16 @@ namespace XNative.Wine.Tests.Fakes
             return new string[0];
         }
 
+        public Stream OpenRead(string path)
+        {
+            if (!_files.Contains(path))
+            {
+                throw new FileNotFoundException("File not found: " + path, path);
+            }
+
+            return new MemoryStream();
+        }
+
         public Task<string> ReadAllTextAsync(string path, CancellationToken cancellationToken = default)
         {
             return Task.FromResult(string.Empty);

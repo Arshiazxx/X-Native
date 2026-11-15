@@ -31,11 +31,15 @@ namespace XNative.Platform.Logging
         /// Initializes a new instance of the <see cref="FileLogService"/> class.
         /// </summary>
         /// <param name="options">Log configuration options.</param>
+        /// <exception cref="ArgumentException">Thrown when
+        /// <see cref="FileLogServiceOptions.FileName"/> is not a plain
+        /// file name.</exception>
         public FileLogService(IOptions<FileLogServiceOptions> options)
         {
             _options = options != null && options.Value != null
                 ? options.Value
                 : throw new ArgumentNullException(nameof(options));
+            ValidateFileName(_options.FileName);
         }
 
         /// <summary>
@@ -43,9 +47,13 @@ namespace XNative.Platform.Logging
         /// from plain options, for call sites without a DI container.
         /// </summary>
         /// <param name="options">Log configuration options.</param>
+        /// <exception cref="ArgumentException">Thrown when
+        /// <see cref="FileLogServiceOptions.FileName"/> is not a plain
+        /// file name.</exception>
         public FileLogService(FileLogServiceOptions options)
         {
             _options = options ?? throw new ArgumentNullException(nameof(options));
+            ValidateFileName(_options.FileName);
         }
 
         /// <inheritdoc />
@@ -127,6 +135,32 @@ namespace XNative.Platform.Logging
                 {
                     Buffer(line);
                 }
+            }
+        }
+
+        private static void ValidateFileName(string? fileName)
+        {
+            // Null or whitespace keeps the documented fallback
+            // ("xnative.log", see LogFilePath); anything else must be
+            // a plain file name, held to the same rules the storage
+            // service applies to its keys, so the log file can never
+            // escape the configured log directory.
+            if (string.IsNullOrWhiteSpace(fileName))
+            {
+                return;
+            }
+
+            string name = fileName!;
+            if (Path.IsPathRooted(name)
+                || name.IndexOf('/') >= 0
+                || name.IndexOf('\\') >= 0
+                || name.IndexOf("..", StringComparison.Ordinal) >= 0
+                || !string.Equals(Path.GetFileName(name), name, StringComparison.Ordinal))
+            {
+                throw new ArgumentException(
+                    "FileLogServiceOptions.FileName must be a plain file name "
+                    + "without directory separators, a rooted path, or '..'.",
+                    nameof(FileLogServiceOptions.FileName));
             }
         }
 
