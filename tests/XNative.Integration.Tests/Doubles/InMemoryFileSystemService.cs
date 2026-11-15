@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using XNative.Core.Abstractions;
@@ -84,6 +85,19 @@ namespace XNative.Integration.Tests.Doubles
             }
 
             return Task.FromResult(content);
+        }
+
+        public Stream OpenRead(string path)
+        {
+            string full = Normalize(path);
+            if (!_files.TryGetValue(full, out string? content))
+            {
+                // Matches ReadAllTextAsync: a missing file surfaces as
+                // FileNotFoundException, like a real file system.
+                throw new FileNotFoundException("File not found in the in-memory file system.", full);
+            }
+
+            return new MemoryStream(Encoding.UTF8.GetBytes(content), writable: false);
         }
 
         private static string Normalize(string path)
