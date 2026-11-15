@@ -20,7 +20,8 @@ namespace XNative.Wine.Profiles
     /// A malformed database is loud, never silently empty: invalid JSON,
     /// a non-array root, a missing <c>id</c> / <c>executableName</c> /
     /// <c>rating</c>, an empty or whitespace <c>id</c>, a duplicated
-    /// <c>id</c>, or an unknown rating name all throw
+    /// <c>id</c>, or a rating that is not exactly one defined member
+    /// name (comma-joined and numeric forms count as unknown) all throw
     /// <see cref="InvalidDataException"/> at load time. Silently treating
     /// a broken compatibility database as "no profiles" would hide data
     /// loss and make known-broken games look merely untested, and a
@@ -183,7 +184,7 @@ namespace XNative.Wine.Profiles
             string? recommendedArguments = GetOptionalString(element, "recommendedArguments", index);
 
             CompatibilityRating rating;
-            if (!Enum.TryParse(ratingName, true, out rating) || !Enum.IsDefined(typeof(CompatibilityRating), rating))
+            if (!TryParseRatingName(ratingName, out rating))
             {
                 throw new InvalidDataException(
                     "Compatibility profile '" + id + "' has an unknown rating '" + ratingName + "'.");
@@ -199,6 +200,29 @@ namespace XNative.Wine.Profiles
                     "Compatibility profile at index " + index + " is invalid: " + exception.Message,
                     exception);
             }
+        }
+
+        private static bool TryParseRatingName(string ratingName, out CompatibilityRating rating)
+        {
+            // Enum.TryParse alone is not strict enough for a database
+            // field: it also accepts comma-joined member names
+            // ("Broken, Starts" -> Broken | Starts, which happens to be
+            // the different, defined member Playable) and numeric
+            // strings ("3" -> Playable). A rating is well-formed only
+            // when it is exactly one defined member name, matched
+            // case-insensitively; anything else is malformed data and
+            // the caller reports it like any unknown rating name.
+            foreach (string name in Enum.GetNames(typeof(CompatibilityRating)))
+            {
+                if (string.Equals(name, ratingName, StringComparison.OrdinalIgnoreCase))
+                {
+                    rating = (CompatibilityRating)Enum.Parse(typeof(CompatibilityRating), name);
+                    return true;
+                }
+            }
+
+            rating = default(CompatibilityRating);
+            return false;
         }
 
         private static string GetRequiredString(JsonElement element, string propertyName, int index)

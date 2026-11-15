@@ -17,7 +17,11 @@ namespace XNative.Platform.Input
     /// larger magnitude as a pair, so a stick's X and Y always come
     /// from the same source and direction is never mixed. The result
     /// is connected when either source is connected, and carries the
-    /// later of the two timestamps.
+    /// later of the two timestamps. The timestamp comparison is a
+    /// plain tick comparison, which is sound because
+    /// <see cref="GamepadState"/>'s constructor guarantees every
+    /// snapshot carries a UTC timestamp — the two values always share
+    /// a clock.
     /// </remarks>
     public static class GamepadStateMerger
     {

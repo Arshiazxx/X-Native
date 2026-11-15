@@ -160,6 +160,19 @@ namespace XNative.Platform.Tests.Input
         }
 
         [Fact]
+        public void MergerResultTimestampStaysUtc()
+        {
+            // The merger compares timestamps by ticks; that is sound
+            // only because GamepadState guarantees UTC timestamps, and
+            // the merged result must keep the guarantee.
+            GamepadState merged = GamepadStateMerger.Merge(
+                State(stamp: Stamp),
+                State(stamp: Later));
+
+            Assert.Equal(DateTimeKind.Utc, merged.TimestampUtc.Kind);
+        }
+
+        [Fact]
         public void MergerRejectsNull()
         {
             Assert.Throws<ArgumentNullException>(() => GamepadStateMerger.Merge(null!, State()));

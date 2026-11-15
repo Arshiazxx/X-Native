@@ -76,11 +76,17 @@ namespace XNative.Graphics
 
         private static int CountBits(GraphicsApi value)
         {
-            int bits = (int)value;
+            // Iterate over the unsigned representation. Shifting a
+            // signed int is an arithmetic shift: a value with the sign
+            // bit set (reachable only through an undefined GraphicsApi
+            // cast in a custom backend) converges to -1 and would loop
+            // forever. A uint shift is logical, so the loop provably
+            // reaches 0 within 32 iterations for every input.
+            uint bits = (uint)(int)value;
             int count = 0;
             while (bits != 0)
             {
-                count += bits & 1;
+                count += (int)(bits & 1u);
                 bits >>= 1;
             }
 

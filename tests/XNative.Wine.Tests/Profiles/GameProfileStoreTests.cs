@@ -127,6 +127,40 @@ namespace XNative.Wine.Tests.Profiles
             Assert.Throws<InvalidDataException>(() => new JsonGameProfileStore(json));
         }
 
+        [Theory]
+        // Enum.TryParse would OR comma-joined names into a different
+        // defined member ("Broken, Starts" -> Playable) and accept
+        // numeric strings as values; both are malformed database data
+        // and must throw like any other unknown rating name.
+        [InlineData("Broken, Starts")]
+        [InlineData("Broken,Starts")]
+        [InlineData("3")]
+        [InlineData("1")]
+        [InlineData("-1")]
+        [InlineData(" Playable")]
+        public void Json_CompositeOrNumericRating_ThrowsInvalidDataException(string rating)
+        {
+            string json = "[{ \"id\": \"x\", \"executableName\": \"game.exe\", \"rating\": \"" + rating + "\" }]";
+            Assert.Throws<InvalidDataException>(() => new JsonGameProfileStore(json));
+        }
+
+        [Theory]
+        [InlineData("Unknown", CompatibilityRating.Unknown)]
+        [InlineData("Broken", CompatibilityRating.Broken)]
+        [InlineData("Starts", CompatibilityRating.Starts)]
+        [InlineData("Playable", CompatibilityRating.Playable)]
+        [InlineData("Perfect", CompatibilityRating.Perfect)]
+        [InlineData("playable", CompatibilityRating.Playable)]
+        [InlineData("BROKEN", CompatibilityRating.Broken)]
+        public void Json_DefinedRatingNames_LoadCaseInsensitively(string ratingName, CompatibilityRating expected)
+        {
+            string json = "[{ \"id\": \"x\", \"executableName\": \"game.exe\", \"rating\": \"" + ratingName + "\" }]";
+            var store = new JsonGameProfileStore(json);
+
+            GameProfile profile = Assert.Single(store.GetProfiles());
+            Assert.Equal(expected, profile.Rating);
+        }
+
         [Fact]
         public void Json_Constructor_ThrowsOnNull()
         {

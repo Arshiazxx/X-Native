@@ -18,10 +18,32 @@ namespace XNative.Core.Input
     /// documented range (including <see cref="double.NaN"/> and infinity)
     /// throws <see cref="ArgumentOutOfRangeException"/>. Silently clamping
     /// would hide bugs in platform backends that feed this type.
+    /// The button flags are validated the same way, matching
+    /// <see cref="KeyboardState"/>'s rejection of undefined
+    /// <see cref="KeyboardKey"/> values: any bit outside the defined
+    /// <see cref="GamepadButtons"/> flags throws
+    /// <see cref="ArgumentOutOfRangeException"/>. The timestamp must be
+    /// UTC (<see cref="DateTimeKind.Utc"/>); any other kind throws
+    /// <see cref="ArgumentException"/>, because consumers compare
+    /// timestamps directly and a local or unspecified timestamp would
+    /// silently compare against a different clock.
     /// </remarks>
     public sealed class GamepadState
     {
         private static readonly DateTime EpochUtc = new DateTime(0L, DateTimeKind.Utc);
+
+        /// <summary>
+        /// Every defined <see cref="GamepadButtons"/> flag, OR-ed
+        /// together. A button combination is valid only when it sets
+        /// no bit outside this mask.
+        /// </summary>
+        private const GamepadButtons AllDefinedButtons =
+            GamepadButtons.A | GamepadButtons.B | GamepadButtons.X | GamepadButtons.Y
+            | GamepadButtons.LeftShoulder | GamepadButtons.RightShoulder
+            | GamepadButtons.LeftStick | GamepadButtons.RightStick
+            | GamepadButtons.DPadUp | GamepadButtons.DPadDown
+            | GamepadButtons.DPadLeft | GamepadButtons.DPadRight
+            | GamepadButtons.Menu | GamepadButtons.View | GamepadButtons.Guide;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="GamepadState"/> class.
@@ -37,7 +59,13 @@ namespace XNative.Core.Input
         /// <param name="timestampUtc">When this snapshot was captured, in UTC.</param>
         /// <exception cref="ArgumentOutOfRangeException">
         /// Thrown when a trigger is outside 0..1 or a thumbstick axis is
-        /// outside -1..1 (NaN and infinity count as outside).
+        /// outside -1..1 (NaN and infinity count as outside), or when
+        /// <paramref name="buttons"/> sets a bit that is not a defined
+        /// <see cref="GamepadButtons"/> flag.
+        /// </exception>
+        /// <exception cref="ArgumentException">
+        /// Thrown when <paramref name="timestampUtc"/> does not have
+        /// <see cref="DateTimeKind.Utc"/> kind.
         /// </exception>
         public GamepadState(
             GamepadButtons buttons,
@@ -50,7 +78,7 @@ namespace XNative.Core.Input
             bool isConnected,
             DateTime timestampUtc)
         {
-            Buttons = buttons;
+            Buttons = ValidateButtons(buttons);
             LeftTrigger = ValidateRange(leftTrigger, 0.0, 1.0, nameof(leftTrigger));
             RightTrigger = ValidateRange(rightTrigger, 0.0, 1.0, nameof(rightTrigger));
             LeftThumbX = ValidateRange(leftThumbX, -1.0, 1.0, nameof(leftThumbX));
@@ -58,7 +86,7 @@ namespace XNative.Core.Input
             RightThumbX = ValidateRange(rightThumbX, -1.0, 1.0, nameof(rightThumbX));
             RightThumbY = ValidateRange(rightThumbY, -1.0, 1.0, nameof(rightThumbY));
             IsConnected = isConnected;
-            TimestampUtc = timestampUtc;
+            TimestampUtc = ValidateTimestampUtc(timestampUtc);
         }
 
         /// <summary>Digital buttons currently pressed.</summary>
@@ -116,6 +144,28 @@ namespace XNative.Core.Input
         /// </summary>
         public static GamepadState Neutral { get; } = new GamepadState(
             GamepadButtons.None, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, true, EpochUtc);
+
+        private static GamepadButtons ValidateButtons(GamepadButtons buttons)
+        {
+            if ((buttons & ~AllDefinedButtons) != 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(buttons), buttons, "Value sets a bit that is not a defined GamepadButtons flag.");
+            }
+
+            return buttons;
+        }
+
+        private static DateTime ValidateTimestampUtc(DateTime timestampUtc)
+        {
+            if (timestampUtc.Kind != DateTimeKind.Utc)
+            {
+                throw new ArgumentException(
+                    "The timestamp must be in UTC (DateTimeKind.Utc).", nameof(timestampUtc));
+            }
+
+            return timestampUtc;
+        }
 
         private static double ValidateRange(double value, double min, double max, string paramName)
         {

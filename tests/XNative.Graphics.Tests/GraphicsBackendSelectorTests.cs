@@ -77,5 +77,38 @@ namespace XNative.Graphics.Tests
 
             Assert.Null(selector.Select(GraphicsApi.OpenGL));
         }
+
+        [Fact]
+        public void SelectTerminatesForBackendWithSignBitApiValue()
+        {
+            var registry = new GraphicsBackendRegistry();
+            // An undefined cast in a custom backend can set the sign
+            // bit of SupportedApis. Counting that backend's extra APIs
+            // must terminate (a signed-shift bit count would spin
+            // forever on the negative value) and count it as one extra.
+            var weird = new FakeGraphicsBackend("weird", GraphicsApi.Direct3D11 | (GraphicsApi)int.MinValue);
+            registry.Register(weird);
+
+            var selector = new GraphicsBackendSelector(registry);
+
+            Assert.Same(weird, selector.Select(GraphicsApi.Direct3D11));
+        }
+
+        [Fact]
+        public void SelectCountsEveryBitOfAnAllBitsBackend()
+        {
+            var registry = new GraphicsBackendRegistry();
+            var everything = new FakeGraphicsBackend("everything", (GraphicsApi)(-1));
+            var nullBackend = new NullGraphicsBackend();
+            registry.Register(everything);
+            registry.Register(nullBackend);
+
+            var selector = new GraphicsBackendSelector(registry);
+
+            // The all-bits backend has 32 extra APIs over None; the
+            // null backend has none, so it wins despite registering
+            // second — the full popcount, not a prefix of it, decides.
+            Assert.Same(nullBackend, selector.Select(GraphicsApi.None));
+        }
     }
 }

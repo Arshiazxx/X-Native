@@ -112,6 +112,46 @@ namespace XNative.Core.Tests.Input
             Assert.False(state.IsButtonDown(GamepadButtons.None));
         }
 
+        [Theory]
+        [InlineData(1 << 15)]
+        [InlineData(1 << 20)]
+        [InlineData(-1)]
+        public void UndefinedButtonBitsThrow(int bits)
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() => new GamepadState(
+                (GamepadButtons)bits, 0, 0, 0, 0, 0, 0, true, Stamp));
+        }
+
+        [Fact]
+        public void UndefinedButtonBitMixedWithDefinedThrows()
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() => new GamepadState(
+                GamepadButtons.A | (GamepadButtons)(1 << 20), 0, 0, 0, 0, 0, 0, true, Stamp));
+        }
+
+        [Fact]
+        public void AllDefinedButtonsCombinedAreAccepted()
+        {
+            GamepadButtons all = GamepadButtons.None;
+            foreach (GamepadButtons button in Enum.GetValues(typeof(GamepadButtons)))
+            {
+                all |= button;
+            }
+
+            var state = new GamepadState(all, 0, 0, 0, 0, 0, 0, true, Stamp);
+            Assert.Equal(all, state.Buttons);
+        }
+
+        [Theory]
+        [InlineData(DateTimeKind.Local)]
+        [InlineData(DateTimeKind.Unspecified)]
+        public void NonUtcTimestampThrows(DateTimeKind kind)
+        {
+            var stamp = new DateTime(2026, 1, 1, 0, 0, 0, kind);
+            Assert.Throws<ArgumentException>(() => new GamepadState(
+                GamepadButtons.None, 0, 0, 0, 0, 0, 0, true, stamp));
+        }
+
         [Fact]
         public void EveryButtonIsASingleBit()
         {
