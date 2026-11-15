@@ -242,6 +242,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   netstandard2.0. Both now read in chunks and check the token per chunk
   (as does the catalog's manifest read), so a cancelled scan or settings
   load stops promptly instead of reading to the end of the file.
+- On Xbox, device detection could crash the app on its first page:
+  the bootstrapper resolved `IDeviceInfoService` at startup but never
+  called it, so the lazy WinRT detection first ran unguarded while
+  the main page loaded, and a failure there escaped navigation and
+  killed the process — bypassing the startup report the bootstrapper
+  exists to produce. Detection now runs inside the bootstrapper's
+  guarded startup, so a detection failure is surfaced on the first
+  page as a startup failure like any other, and the main page shows
+  load errors instead of letting them escape navigation.
+- The Xbox bootstrapper mishandled its service provider around
+  failed startups and resets: a provider built before a startup
+  failure was left undisposed (and a retry built a second one beside
+  it), and `Reset` left the disposed provider behind the app's cached
+  startup state, where later resolutions would have used it. `Start`
+  now disposes the provider when startup fails, `Start` and `Reset`
+  are serialised on a lock, and `Reset` clears the cached state too.
+- A fault while the Xbox host polled gamepads — including reading
+  the connected-gamepad snapshot — was an unhandled exception that
+  killed the app. The poll is now guarded end to end: a failed poll
+  is skipped and polling continues with the next one.
+- The Xbox main page's launch handler had no re-entry guard, so a
+  second activation while a launch was in flight could start a
+  duplicate launch. It now ignores activations until the current
+  launch finishes, matching `GameLibraryViewModel`'s launch path.
 
 ### Notes
 
