@@ -35,9 +35,19 @@ namespace XNative.Platform.FileSystem
                 return Array.Empty<string>();
             }
 
+            // A blank pattern names nothing, so it matches nothing.
+            // It must never be widened to a match-everything search:
+            // callers pass patterns from validated settings, and a
+            // blank entry reaching this public API is a caller bug
+            // that should surface as "no files", not as every file.
+            if (string.IsNullOrWhiteSpace(pattern))
+            {
+                return Array.Empty<string>();
+            }
+
             try
             {
-                return Directory.GetFiles(directory, string.IsNullOrEmpty(pattern) ? "*.*" : pattern);
+                return Directory.GetFiles(directory, pattern);
             }
             catch (IOException)
             {

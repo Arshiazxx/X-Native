@@ -30,7 +30,12 @@ namespace XNative.Core.Abstractions
         /// Gets files matching a pattern in a directory.
         /// </summary>
         /// <param name="directory">The directory to search.</param>
-        /// <param name="pattern">The search pattern (e.g., "*.exe").</param>
+        /// <param name="pattern">The search pattern (e.g., "*.exe").
+        /// A <c>null</c>, empty, or whitespace-only pattern matches
+        /// nothing: implementations return an empty array rather than
+        /// widening a blank pattern into a match-everything search.
+        /// Callers that want every file pass an explicit pattern such
+        /// as "*.*".</param>
         /// <returns>An array of matching file paths.</returns>
         string[] GetFiles(string directory, string pattern);
 

@@ -121,5 +121,20 @@ namespace XNative.Platform.Tests.FileSystem
             Assert.Empty(_service.GetFiles(missing, "*.exe"));
             Assert.Empty(_service.GetDirectories(missing));
         }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void GetFiles_ReturnsEmpty_WhenPatternIsBlank(string pattern)
+        {
+            // Both files would match "*.*" — the pattern a blank
+            // pattern used to be silently widened to. A blank pattern
+            // must match nothing instead.
+            File.WriteAllText(Path.Combine(_root, "one.exe"), "x");
+            File.WriteAllText(Path.Combine(_root, "two.txt"), "x");
+
+            Assert.Empty(_service.GetFiles(_root, pattern));
+        }
     }
 }
