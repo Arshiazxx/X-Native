@@ -17,6 +17,68 @@ namespace XNative.UI.ViewModels
     /// (<see cref="VisibleGames"/>), the current selection, and launching
     /// the selected game when a game runner was supplied.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Thread affinity: this view model is not thread-safe and performs
+    /// no internal synchronisation: no locks, no dispatcher marshalling,
+    /// no thread-safe collections. A host must interact with it from a
+    /// single thread, and in a UWP/WinUI host that thread must be the UI
+    /// thread that owns the bound views:
+    /// </para>
+    /// <list type="bullet">
+    /// <item>
+    /// <description>
+    /// <see cref="Games"/> and <see cref="VisibleGames"/> are plain
+    /// <see cref="ObservableCollection{T}"/> instances, mutated by
+    /// <see cref="ScanGamesAsync"/> and, for <see cref="VisibleGames"/>,
+    /// by the <see cref="SearchText"/> and <see cref="SortMode"/>
+    /// setters, which clear and refill it synchronously on the assigning
+    /// thread.
+    /// </description>
+    /// </item>
+    /// <item>
+    /// <description>
+    /// <see cref="ObservableObject.PropertyChanged"/> and the commands'
+    /// <see cref="System.Windows.Input.ICommand.CanExecuteChanged"/>
+    /// notifications are raised synchronously, inline, on the thread
+    /// that performed the change. Nothing posts them to a UI thread on
+    /// the caller's behalf.
+    /// </description>
+    /// </item>
+    /// <item>
+    /// <description>
+    /// <see cref="ScanGamesAsync"/> and <see cref="LaunchSelectedAsync"/>
+    /// never call ConfigureAwait(false): their awaits capture the
+    /// <see cref="SynchronizationContext"/> of the calling thread.
+    /// Everything before the first await, including clearing
+    /// <see cref="Games"/> and setting <see cref="ViewModelBase.IsBusy"/>,
+    /// runs synchronously on the calling thread; everything after an
+    /// await (filling the collections, updating the status properties,
+    /// restoring the selection, resetting the busy flags) runs on the
+    /// captured context. Call both methods on the UI thread: called from
+    /// a thread without a synchronization context (for example a
+    /// thread-pool thread), the post-await mutations land on a
+    /// thread-pool thread and fault against a bound UWP/WinUI view.
+    /// </description>
+    /// </item>
+    /// <item>
+    /// <description>
+    /// <see cref="ScanGamesCommand"/> is fire-and-forget: executing it
+    /// starts a scan and discards the scan task, so progress and outcome
+    /// are observable only through <see cref="ViewModelBase.IsBusy"/>
+    /// and <see cref="ScanStatus"/> notifications. Await
+    /// <see cref="ScanGamesAsync"/> directly when completion matters.
+    /// </description>
+    /// </item>
+    /// </list>
+    /// <para>
+    /// The re-entry guards (<see cref="ViewModelBase.IsBusy"/> and
+    /// <see cref="IsLaunching"/>) are plain check-then-act flags: they
+    /// stop overlapping operations started on the same thread, but
+    /// concurrent calls from several threads can pass a check together.
+    /// Keep every interaction on the one thread.
+    /// </para>
+    /// </remarks>
     public sealed class GameLibraryViewModel : ViewModelBase
     {
         private readonly IGameCatalog _gameCatalog;

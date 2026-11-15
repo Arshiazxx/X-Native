@@ -12,6 +12,20 @@ namespace XNative.UI.ViewModels
     /// View model of the startup screen. It reports which modules the
     /// container resolved and which device the application runs on.
     /// </summary>
+    /// <remarks>
+    /// Thread affinity: this view model is fully synchronous (it starts
+    /// no tasks and awaits nothing) and is not thread-safe: it performs
+    /// no internal synchronisation and marshals nothing to a UI thread.
+    /// <see cref="Load"/> clears and refills <see cref="Modules"/> and
+    /// sets <see cref="DeviceInfo"/> and
+    /// <see cref="ViewModelBase.IsBusy"/>, raising
+    /// <see cref="ObservableObject.PropertyChanged"/> synchronously on
+    /// the calling thread. In a UWP/WinUI host, construct the view
+    /// model, call <see cref="Load"/>, and bind it from the UI thread
+    /// that owns the views. Because nothing is asynchronous, no
+    /// continuation can resume on another thread: the calling thread is
+    /// the only thread ever involved.
+    /// </remarks>
     public sealed class StartupViewModel : ViewModelBase
     {
         private static readonly string[] ExpectedModuleOrder =
