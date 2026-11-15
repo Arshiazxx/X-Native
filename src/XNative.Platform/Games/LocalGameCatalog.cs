@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -27,7 +29,14 @@ namespace XNative.Platform.Games
         public string[] ExecutablePatterns { get; set; } = { "*.exe" };
 
         /// <summary>
-        /// Maximum directory depth to scan.
+        /// Maximum directory depth to scan, counted in directory levels
+        /// below <see cref="RootPath"/>. The root directory itself is
+        /// depth 0, so a game stored directly in <see cref="RootPath"/>
+        /// is at depth 0 and is found whenever <see cref="MaxDepth"/> is
+        /// zero or greater; a game in an immediate child directory is at
+        /// depth 1, and so on. Directories whose depth is greater than
+        /// <see cref="MaxDepth"/> are not entered, so games deeper than
+        /// <see cref="MaxDepth"/> are not found.
         /// </summary>
         public int MaxDepth { get; set; } = 3;
     }
@@ -66,17 +75,41 @@ namespace XNative.Platform.Games
         /// Optional version.
         /// </summary>
         public string? Version { get; set; }
+
+        /// <summary>
+        /// Optional default command line arguments for the game
+        /// (manifest v2). Recorded on the resulting
+        /// <see cref="GameInfo.LaunchArguments"/>.
+        /// </summary>
+        public string? Arguments { get; set; }
+
+        /// <summary>
+        /// Optional icon file path relative to the manifest directory
+        /// (manifest v2). Recorded on the resulting
+        /// <see cref="GameMetadata.IconPath"/> only when the resolved
+        /// path stays inside the manifest directory tree and the file
+        /// exists; otherwise it is ignored.
+        /// </summary>
+        public string? Icon { get; set; }
     }
 
     /// <summary>
     /// Local file system based game catalog implementation.
     /// </summary>
-    public sealed class LocalGameCatalog : IGameCatalog
+    /// <remarks>
+    /// Game identifiers are stable across processes and restarts: they
+    /// are derived from an FNV-1a 64-bit hash of the normalized full
+    /// executable path, never from <see cref="object.GetHashCode"/>
+    /// (which is randomized per process for strings). Refreshes are
+    /// single-flight and the published cache is an immutable snapshot,
+    /// so concurrent readers always observe a consistent catalog.
+    /// </remarks>
+    public sealed class LocalGameCatalog : IGameCatalog, IDisposable
     {
         private readonly LocalGameCatalogOptions _options;
         private readonly IFileSystemService _fileSystem;
-        private readonly object _lock = new();
-        private IReadOnlyCollection<GameInfo>? _cachedGames;
+        private readonly SemaphoreSlim _refreshLock = new SemaphoreSlim(1, 1);
+        private volatile IReadOnlyCollection<GameInfo>? _cachedGames;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="LocalGameCatalog"/> class.
@@ -89,12 +122,38 @@ namespace XNative.Platform.Games
             _fileSystem = fileSystem ?? throw new ArgumentNullException(nameof(fileSystem));
         }
 
+        /// <summary>
+        /// Releases the synchronization resources held by the catalog.
+        /// </summary>
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        /// <summary>
+        /// Releases the unmanaged resources used by the catalog and,
+        /// when <paramref name="disposing"/> is <c>true</c>, its managed
+        /// resources.
+        /// </summary>
+        /// <param name="disposing"><c>true</c> to release both managed
+        /// and unmanaged resources; <c>false</c> to release only
+        /// unmanaged resources.</param>
+        private void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _refreshLock.Dispose();
+            }
+        }
+
         /// <inheritdoc />
         public async Task<IReadOnlyCollection<GameInfo>> GetGamesAsync(CancellationToken cancellationToken = default)
         {
-            if (_cachedGames != null)
+            var cached = _cachedGames;
+            if (cached != null)
             {
-                return _cachedGames;
+                return cached;
             }
 
             await RefreshAsync(cancellationToken);
@@ -128,22 +187,25 @@ namespace XNative.Platform.Games
         /// <inheritdoc />
         public async Task RefreshAsync(CancellationToken cancellationToken = default)
         {
-            var games = new List<GameInfo>();
-
-            if (!_fileSystem.DirectoryExists(_options.RootPath))
+            await _refreshLock.WaitAsync(cancellationToken);
+            try
             {
-                lock (_lock)
+                var games = new List<GameInfo>();
+
+                if (!string.IsNullOrWhiteSpace(_options.RootPath)
+                    && _fileSystem.DirectoryExists(_options.RootPath))
                 {
-                    _cachedGames = games;
+                    await ScanDirectoryAsync(_options.RootPath, 0, games, cancellationToken);
                 }
-                return;
+
+                // Publish a fully built, immutable snapshot in a single
+                // volatile write so concurrent readers never observe a
+                // partially updated cache.
+                _cachedGames = games.ToArray();
             }
-
-            await ScanDirectoryAsync(_options.RootPath, 0, games, cancellationToken);
-
-            lock (_lock)
+            finally
             {
-                _cachedGames = games;
+                _refreshLock.Release();
             }
         }
 
@@ -156,52 +218,94 @@ namespace XNative.Platform.Games
                 return;
             }
 
+            // First, check for a game.json manifest. A failure here (for
+            // example the directory vanishing mid-scan) must not prevent
+            // the executable scan or the recursion below.
+            bool manifestProcessed = false;
             try
             {
-                // First, check for game.json manifest
                 var manifestPath = Path.Combine(directory, "game.json");
-                bool manifestProcessed = false;
                 if (_fileSystem.FileExists(manifestPath))
                 {
                     var gameInfo = await TryCreateGameFromManifestAsync(manifestPath, directory, cancellationToken);
                     if (gameInfo != null)
                     {
-                        games.Add(gameInfo);
+                        AddIfNew(games, gameInfo);
                         manifestProcessed = true;
                     }
-                }
-
-                // Then scan for executables, but skip if a manifest was successfully processed
-                if (!manifestProcessed)
-                {
-                    foreach (var pattern in _options.ExecutablePatterns)
-                    {
-                        var executables = _fileSystem.GetFiles(directory, pattern);
-                        foreach (var exePath in executables)
-                        {
-                            var gameInfo = CreateGameFromExecutable(exePath);
-                            if (gameInfo != null && !games.Any(g => string.Equals(g.ExecutablePath, exePath, StringComparison.OrdinalIgnoreCase)))
-                            {
-                                games.Add(gameInfo);
-                            }
-                        }
-                    }
-                }
-
-                // Recurse into subdirectories
-                var subDirs = _fileSystem.GetDirectories(directory);
-                foreach (var subDir in subDirs)
-                {
-                    await ScanDirectoryAsync(subDir, depth + 1, games, cancellationToken);
                 }
             }
             catch (UnauthorizedAccessException)
             {
-                // Skip directories we can't access
+                // Skip manifests we can't access.
             }
             catch (IOException)
             {
-                // Skip directories with IO errors
+                // Skip manifests with IO errors.
+            }
+
+            // Then scan for executables, but skip if a manifest was
+            // successfully processed. Each pattern is attempted
+            // independently so one failing pattern does not lose the rest.
+            if (!manifestProcessed)
+            {
+                foreach (var pattern in _options.ExecutablePatterns)
+                {
+                    string[] executables;
+                    try
+                    {
+                        executables = _fileSystem.GetFiles(directory, pattern);
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        continue;
+                    }
+                    catch (IOException)
+                    {
+                        continue;
+                    }
+
+                    if (executables == null)
+                    {
+                        continue;
+                    }
+
+                    foreach (var exePath in executables)
+                    {
+                        var gameInfo = CreateGameFromExecutable(exePath);
+                        if (gameInfo != null)
+                        {
+                            AddIfNew(games, gameInfo);
+                        }
+                    }
+                }
+            }
+
+            // Recurse into subdirectories. A failure to enumerate them
+            // (for example the directory vanishing mid-scan) ends this
+            // branch of the scan instead of failing the whole refresh.
+            string[] subDirs;
+            try
+            {
+                subDirs = _fileSystem.GetDirectories(directory);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return;
+            }
+            catch (IOException)
+            {
+                return;
+            }
+
+            if (subDirs == null)
+            {
+                return;
+            }
+
+            foreach (var subDir in subDirs)
+            {
+                await ScanDirectoryAsync(subDir, depth + 1, games, cancellationToken);
             }
         }
 
@@ -220,7 +324,14 @@ namespace XNative.Platform.Games
                     return null;
                 }
 
+                // Path traversal guard: the resolved executable must stay
+                // inside the manifest's own directory tree.
                 var exePath = Path.Combine(directory, manifest.Executable);
+                if (!IsPathInsideDirectory(exePath, directory))
+                {
+                    return null;
+                }
+
                 if (!_fileSystem.FileExists(exePath))
                 {
                     return null;
@@ -230,21 +341,31 @@ namespace XNative.Platform.Games
                     ? directory
                     : Path.Combine(directory, manifest.WorkingDirectory);
 
+                // The working directory is held to the same guard.
+                if (!IsPathInsideDirectory(workingDir, directory))
+                {
+                    return null;
+                }
+
+                var iconPath = ResolveIconPath(manifest, directory);
+
                 var metadata = new GameMetadata(
                     manifest.Description,
                     manifest.Publisher,
                     manifest.Version,
                     null,
-                    null);
+                    iconPath);
 
-                var id = GenerateId(manifest.Name ?? Path.GetFileNameWithoutExtension(manifest.Executable), exePath);
+                var name = manifest.Name ?? Path.GetFileNameWithoutExtension(manifest.Executable);
+                var id = GenerateId(name, exePath);
                 return new GameInfo(
                     id,
-                    manifest.Name ?? Path.GetFileNameWithoutExtension(manifest.Executable),
+                    name,
                     exePath,
                     workingDir,
                     ExecutableType.WindowsExecutable,
-                    metadata);
+                    metadata,
+                    launchArguments: string.IsNullOrWhiteSpace(manifest.Arguments) ? null : manifest.Arguments);
             }
             catch (JsonException)
             {
@@ -254,6 +375,39 @@ namespace XNative.Platform.Games
             {
                 return null;
             }
+            catch (UnauthorizedAccessException)
+            {
+                return null;
+            }
+            catch (ArgumentException)
+            {
+                return null;
+            }
+            catch (NotSupportedException)
+            {
+                return null;
+            }
+        }
+
+        private string? ResolveIconPath(GameManifest manifest, string directory)
+        {
+            if (string.IsNullOrWhiteSpace(manifest.Icon))
+            {
+                return null;
+            }
+
+            var iconPath = Path.Combine(directory, manifest.Icon);
+
+            // Same traversal guard as the executable: an icon outside the
+            // manifest's directory tree is ignored rather than recorded.
+            if (!IsPathInsideDirectory(iconPath, directory))
+            {
+                return null;
+            }
+
+            // Recorded only when the file actually exists; a missing icon
+            // never invalidates the game itself.
+            return _fileSystem.FileExists(iconPath) ? iconPath : null;
         }
 
         private GameInfo? CreateGameFromExecutable(string exePath)
@@ -278,9 +432,88 @@ namespace XNative.Platform.Games
             }
         }
 
+        private static void AddIfNew(List<GameInfo> games, GameInfo gameInfo)
+        {
+            if (!games.Any(g => string.Equals(g.ExecutablePath, gameInfo.ExecutablePath, StringComparison.OrdinalIgnoreCase)))
+            {
+                games.Add(gameInfo);
+            }
+        }
+
+        /// <summary>
+        /// Determines whether <paramref name="path"/> resolves to a
+        /// location inside <paramref name="directory"/>, using full-path
+        /// normalization so that <c>..</c> segments cannot escape the
+        /// directory tree. The directory itself counts as inside.
+        /// </summary>
+        /// <param name="path">The candidate path (relative or absolute).</param>
+        /// <param name="directory">The directory that must contain it.</param>
+        /// <returns><c>true</c> when the normalized path is the directory
+        /// itself or lies beneath it; otherwise <c>false</c>.</returns>
+        private static bool IsPathInsideDirectory(string path, string directory)
+        {
+            string fullPath;
+            string fullDirectory;
+            try
+            {
+                fullPath = Path.GetFullPath(path);
+                fullDirectory = Path.GetFullPath(directory);
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+            catch (NotSupportedException)
+            {
+                return false;
+            }
+            catch (PathTooLongException)
+            {
+                return false;
+            }
+
+            if (string.Equals(fullPath, fullDirectory, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var directoryPrefix = fullDirectory.TrimEnd(
+                    Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+            return fullPath.StartsWith(directoryPrefix, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Builds a stable game identifier of the form
+        /// <c>&lt;slug&gt;-&lt;hash&gt;</c>, where the hash is the
+        /// FNV-1a 64-bit hash (offset basis 14695981039346656037, prime
+        /// 1099511628211) of the UTF-8 bytes of the normalized full
+        /// executable path (<see cref="Path.GetFullPath(string)"/>),
+        /// rendered as 16 lowercase hexadecimal characters. Unlike
+        /// <see cref="object.GetHashCode"/>, this value is identical in
+        /// every process, so an identifier survives restarts.
+        /// </summary>
+        /// <param name="name">Display name used for the slug portion.</param>
+        /// <param name="exePath">Executable path to hash.</param>
+        /// <returns>The stable identifier.</returns>
         private static string GenerateId(string name, string exePath)
         {
-            var pathHash = exePath.GetHashCode().ToString("x8");
+            var normalizedPath = Path.GetFullPath(exePath);
+            var bytes = Encoding.UTF8.GetBytes(normalizedPath);
+
+            const ulong offsetBasis = 14695981039346656037UL;
+            const ulong prime = 1099511628211UL;
+            var hash = offsetBasis;
+            unchecked
+            {
+                foreach (var b in bytes)
+                {
+                    hash ^= b;
+                    hash *= prime;
+                }
+            }
+
+            var pathHash = hash.ToString("x16", CultureInfo.InvariantCulture);
             return $"{name.ToLowerInvariant().Replace(" ", "-")}-{pathHash}";
         }
     }
