@@ -274,5 +274,44 @@ namespace XNative.Integration.Tests.Catalog
             Assert.Empty(games);
             Assert.Null(await catalog.FindByIdAsync("anything"));
         }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public async Task Scan_BlankPatternInPatternSet_ContributesNoGames(string blankPattern)
+        {
+            // The real SystemFileSystemService fails closed on a blank
+            // pattern — it matches nothing and is never widened to
+            // "*.*" (see IFileSystemService.GetFiles) — and the
+            // in-memory double must behave identically, or the gate
+            // tests above could pass against behaviour the real
+            // service does not have. The folder holds a .txt file that
+            // a match-all blank pattern WOULD surface as a game, so
+            // this test fails if the widening ever returns.
+            string root = Root;
+            var fs = new InMemoryFileSystemService();
+            string gameDir = Path.Combine(root, "blanky");
+            fs.AddFile(Path.Combine(gameDir, "blanky.exe"));
+            fs.AddFile(Path.Combine(gameDir, "notes.txt"));
+
+            // Direct pin on the double: the blank pattern alone finds
+            // nothing, while the real pattern still finds the .exe.
+            Assert.Empty(fs.GetFiles(gameDir, blankPattern));
+            Assert.Single(fs.GetFiles(gameDir, "*.exe"));
+
+            var options = new LocalGameCatalogOptions
+            {
+                RootPath = root,
+                ExecutablePatterns = new[] { blankPattern, "*.exe" },
+                MaxDepth = 3,
+            };
+            var catalog = new LocalGameCatalog(Options.Create(options), fs);
+
+            var games = await catalog.GetGamesAsync();
+
+            GameInfo only = Assert.Single(games);
+            Assert.Equal("blanky", only.Name);
+        }
     }
 }

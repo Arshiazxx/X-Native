@@ -107,7 +107,17 @@ namespace XNative.Integration.Tests.Doubles
 
         private static bool MatchesPattern(string fileName, string pattern)
         {
-            if (string.IsNullOrEmpty(pattern) || pattern == "*")
+            // Blank patterns fail closed, exactly as the real
+            // SystemFileSystemService does (see the IFileSystemService
+            // contract): a null, empty, or whitespace-only pattern
+            // matches nothing and is never widened into a
+            // match-everything search.
+            if (string.IsNullOrWhiteSpace(pattern))
+            {
+                return false;
+            }
+
+            if (pattern == "*")
             {
                 return true;
             }
