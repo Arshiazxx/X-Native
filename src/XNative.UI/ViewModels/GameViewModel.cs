@@ -1,4 +1,5 @@
 using System;
+using XNative.Core.Devices;
 using XNative.Core.Games;
 using XNative.UI.Mvvm;
 
@@ -6,6 +7,11 @@ namespace XNative.UI.ViewModels
 {
     /// <summary>
     /// View model representing a single game in the library.
+    /// Metadata-backed properties (<see cref="Description"/>,
+    /// <see cref="Publisher"/> and <see cref="Version"/>) are null-safe:
+    /// when the game carries no metadata, or the individual metadata field
+    /// is absent, they return <see cref="string.Empty"/> so views can bind
+    /// to them without null checks.
     /// </summary>
     public sealed class GameViewModel : ObservableObject
     {
@@ -21,6 +27,18 @@ namespace XNative.UI.ViewModels
         }
 
         /// <summary>
+        /// The underlying catalog entry this view model presents. Exposed so
+        /// launch code can hand the exact entry back to a game runner.
+        /// </summary>
+        public GameInfo GameInfo => _gameInfo;
+
+        /// <summary>
+        /// Unique identifier of the game entry. Stable across rescans, so
+        /// it can be used to preserve selection.
+        /// </summary>
+        public string Id => _gameInfo.Id;
+
+        /// <summary>
         /// The game's display name.
         /// </summary>
         public string Name => _gameInfo.Name;
@@ -29,6 +47,49 @@ namespace XNative.UI.ViewModels
         /// The full path to the executable.
         /// </summary>
         public string ExecutablePath => _gameInfo.ExecutablePath;
+
+        /// <summary>
+        /// The working directory of the executable.
+        /// </summary>
+        public string WorkingDirectory => _gameInfo.WorkingDirectory;
+
+        /// <summary>
+        /// Default launch arguments recorded for the game, or <c>null</c>
+        /// when the game defines none.
+        /// </summary>
+        public string? LaunchArguments => _gameInfo.LaunchArguments;
+
+        /// <summary>
+        /// Description of the game from its metadata, or
+        /// <see cref="string.Empty"/> when no description is available.
+        /// </summary>
+        public string Description => _gameInfo.Metadata?.Description ?? string.Empty;
+
+        /// <summary>
+        /// Publisher of the game from its metadata, or
+        /// <see cref="string.Empty"/> when no publisher is available.
+        /// </summary>
+        public string Publisher => _gameInfo.Metadata?.Publisher ?? string.Empty;
+
+        /// <summary>
+        /// Version of the game from its metadata, or
+        /// <see cref="string.Empty"/> when no version is available.
+        /// </summary>
+        public string Version => _gameInfo.Metadata?.Version ?? string.Empty;
+
+        /// <summary>
+        /// Processor architecture of the executable rendered as short text:
+        /// "x64", "x86", "ARM64", "ARM", or "Unknown" when it could not be
+        /// determined.
+        /// </summary>
+        public string ArchitectureText => _gameInfo.Architecture switch
+        {
+            ProcessorArchitecture.X64 => "x64",
+            ProcessorArchitecture.X86 => "x86",
+            ProcessorArchitecture.Arm64 => "ARM64",
+            ProcessorArchitecture.Arm => "ARM",
+            _ => "Unknown",
+        };
 
         /// <summary>
         /// The runner identifier (e.g., "wine", "uwp", "native").
@@ -53,6 +114,6 @@ namespace XNative.UI.ViewModels
         /// <summary>
         /// Detailed text for tooltips or expanded view.
         /// </summary>
-        public string DetailText => $"Path: {ExecutablePath}\nRunner: {Runner}";
+        public string DetailText => $"Path: {ExecutablePath}\nRunner: {Runner}\nArchitecture: {ArchitectureText}";
     }
 }

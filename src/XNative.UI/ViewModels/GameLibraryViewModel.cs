@@ -11,30 +11,158 @@ using XNative.UI.Mvvm;
 namespace XNative.UI.ViewModels
 {
     /// <summary>
-    /// View model for the game library screen.
+    /// View model for the game library screen: the launcher surface of the
+    /// application. It owns the full catalog result (<see cref="Games"/>),
+    /// the filtered and sorted projection the view binds to
+    /// (<see cref="VisibleGames"/>), the current selection, and launching
+    /// the selected game when a game runner was supplied.
     /// </summary>
     public sealed class GameLibraryViewModel : ViewModelBase
     {
         private readonly IGameCatalog _gameCatalog;
+        private readonly IGameRunner? _gameRunner;
         private readonly ObservableCollection<GameViewModel> _games;
+        private readonly ObservableCollection<GameViewModel> _visibleGames;
         private string _scanStatus = "Ready";
+        private string _launchStatus = string.Empty;
+        private string _searchText = string.Empty;
+        private SortMode _sortMode = SortMode.NameAscending;
+        private GameViewModel? _selectedGame;
+        private bool _isLaunching;
         private int _totalGames;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="GameLibraryViewModel"/> class
+        /// without launch support. <see cref="LaunchSelectedCommand"/> stays
+        /// disabled and <see cref="LaunchSelectedAsync"/> is a safe no-op.
+        /// </summary>
+        /// <param name="gameCatalog">The game catalog service.</param>
+        public GameLibraryViewModel(IGameCatalog gameCatalog)
+            : this(gameCatalog, null)
+        {
+        }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="GameLibraryViewModel"/> class.
         /// </summary>
         /// <param name="gameCatalog">The game catalog service.</param>
-        public GameLibraryViewModel(IGameCatalog gameCatalog)
+        /// <param name="gameRunner">
+        /// The game runner used to launch the selected game, or <c>null</c>
+        /// to disable launching entirely.
+        /// </param>
+        public GameLibraryViewModel(IGameCatalog gameCatalog, IGameRunner? gameRunner)
         {
             _gameCatalog = gameCatalog ?? throw new ArgumentNullException(nameof(gameCatalog));
+            _gameRunner = gameRunner;
             _games = new ObservableCollection<GameViewModel>();
+            _visibleGames = new ObservableCollection<GameViewModel>();
             ScanGamesCommand = new RelayCommand(async _ => await ScanGamesAsync(), _ => !IsBusy);
+            LaunchSelectedCommand = new AsyncRelayCommand(
+                () => LaunchSelectedAsync(),
+                () => CanLaunchSelected());
         }
 
         /// <summary>
-        /// Collection of discovered games.
+        /// Collection of discovered games: the full, unfiltered scan result,
+        /// ordered by name ascending. This is the source collection;
+        /// <see cref="VisibleGames"/> is what a view should display.
         /// </summary>
         public ObservableCollection<GameViewModel> Games => _games;
+
+        /// <summary>
+        /// The games currently visible in the view: <see cref="Games"/>
+        /// filtered by <see cref="SearchText"/> and ordered by
+        /// <see cref="SortMode"/>. Kept in sync whenever a scan completes,
+        /// the search text changes, or the sort mode changes.
+        /// </summary>
+        public ObservableCollection<GameViewModel> VisibleGames => _visibleGames;
+
+        /// <summary>
+        /// Filter text applied to <see cref="VisibleGames"/>. A game is
+        /// visible when its name contains the text (case-insensitive
+        /// substring match). Empty text shows every game. Assigning
+        /// <c>null</c> is treated as assigning empty text.
+        /// </summary>
+        public string SearchText
+        {
+            get => _searchText;
+            set
+            {
+                string newValue = value ?? string.Empty;
+                if (SetProperty(ref _searchText, newValue))
+                {
+                    RefreshVisibleGames();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Ordering applied to <see cref="VisibleGames"/>. Defaults to
+        /// <see cref="ViewModels.SortMode.NameAscending"/>.
+        /// </summary>
+        public SortMode SortMode
+        {
+            get => _sortMode;
+            set
+            {
+                if (SetProperty(ref _sortMode, value))
+                {
+                    RefreshVisibleGames();
+                }
+            }
+        }
+
+        /// <summary>
+        /// The currently selected game, or <c>null</c> when nothing is
+        /// selected. A rescan preserves the selection when a game with the
+        /// same <see cref="GameViewModel.Id"/> is still present; otherwise
+        /// the selection is cleared.
+        /// </summary>
+        public GameViewModel? SelectedGame
+        {
+            get => _selectedGame;
+            set
+            {
+                if (SetProperty(ref _selectedGame, value))
+                {
+                    LaunchSelectedCommand.RaiseCanExecuteChanged();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Indicates whether launching is available at all, i.e. a game
+        /// runner was supplied to the constructor.
+        /// </summary>
+        public bool CanLaunch => _gameRunner != null;
+
+        /// <summary>
+        /// Indicates that a launch is currently in flight. Deliberately
+        /// separate from <see cref="ViewModelBase.IsBusy"/>, which tracks
+        /// scans, so a launch and a scan never fight over one flag.
+        /// </summary>
+        public bool IsLaunching
+        {
+            get => _isLaunching;
+            private set
+            {
+                if (SetProperty(ref _isLaunching, value))
+                {
+                    LaunchSelectedCommand.RaiseCanExecuteChanged();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Outcome of the most recent launch attempt: the message carried
+        /// by the runner's result, for both success and failure. Empty
+        /// until the first launch attempt completes.
+        /// </summary>
+        public string LaunchStatus
+        {
+            get => _launchStatus;
+            private set => SetProperty(ref _launchStatus, value);
+        }
 
         /// <summary>
         /// Current scan status text.
@@ -73,8 +201,19 @@ namespace XNative.UI.ViewModels
         public RelayCommand ScanGamesCommand { get; }
 
         /// <summary>
-        /// Scans for games and updates the collection.
+        /// Command to launch <see cref="SelectedGame"/>. Enabled only when
+        /// a game runner was supplied, a game is selected, and no launch
+        /// is already running.
         /// </summary>
+        public AsyncRelayCommand LaunchSelectedCommand { get; }
+
+        /// <summary>
+        /// Scans for games and updates the collections. The selection is
+        /// preserved across the rescan when the selected game's
+        /// <see cref="GameViewModel.Id"/> survives it.
+        /// </summary>
+        /// <param name="cancellationToken">Token to cancel the operation.</param>
+        /// <returns>A task representing the scan operation.</returns>
         public async Task ScanGamesAsync(CancellationToken cancellationToken = default)
         {
             if (IsBusy)
@@ -82,10 +221,14 @@ namespace XNative.UI.ViewModels
                 return;
             }
 
+            string? selectedGameId = _selectedGame?.Id;
+
             IsBusy = true;
             ScanStatus = "Scanning...";
             _games.Clear();
             TotalGames = 0;
+            SelectedGame = null;
+            RefreshVisibleGames();
 
             try
             {
@@ -98,6 +241,13 @@ namespace XNative.UI.ViewModels
 
                 TotalGames = _games.Count;
                 ScanStatus = TotalGames > 0 ? $"Found {TotalGames} game(s)" : "No games found";
+                RefreshVisibleGames();
+
+                if (selectedGameId != null)
+                {
+                    SelectedGame = _games.FirstOrDefault(
+                        game => string.Equals(game.Id, selectedGameId, StringComparison.Ordinal));
+                }
             }
             catch (OperationCanceledException)
             {
@@ -111,6 +261,89 @@ namespace XNative.UI.ViewModels
             {
                 IsBusy = false;
                 ScanGamesCommand.RaiseCanExecuteChanged();
+            }
+        }
+
+        /// <summary>
+        /// Launches <see cref="SelectedGame"/> through the game runner.
+        /// Safely does nothing when no game is selected, when no runner was
+        /// supplied, or when a launch is already in flight. On completion
+        /// <see cref="LaunchStatus"/> carries the result message for both
+        /// success and failure. When the game defines
+        /// <see cref="GameInfo.LaunchArguments"/>, they are passed to the
+        /// runner through <see cref="LaunchOptions.Arguments"/>.
+        /// </summary>
+        /// <param name="cancellationToken">Token to cancel the operation.</param>
+        /// <returns>A task representing the launch operation.</returns>
+        public async Task LaunchSelectedAsync(CancellationToken cancellationToken = default)
+        {
+            GameViewModel? selected = _selectedGame;
+            IGameRunner? runner = _gameRunner;
+
+            if (selected is null || runner is null || IsLaunching)
+            {
+                return;
+            }
+
+            IsLaunching = true;
+
+            try
+            {
+                GameInfo game = selected.GameInfo;
+                LaunchResult result;
+
+                if (!string.IsNullOrWhiteSpace(game.LaunchArguments))
+                {
+                    var options = new LaunchOptions { Arguments = game.LaunchArguments };
+                    result = await runner.LaunchAsync(game, options, cancellationToken);
+                }
+                else
+                {
+                    result = await runner.LaunchAsync(game, cancellationToken);
+                }
+
+                LaunchStatus = result.Message
+                    ?? (result.Success ? "Launched" : "Launch failed");
+            }
+            catch (OperationCanceledException)
+            {
+                LaunchStatus = "Launch cancelled";
+            }
+            catch (Exception ex)
+            {
+                LaunchStatus = $"Error: {ex.Message}";
+            }
+            finally
+            {
+                IsLaunching = false;
+            }
+        }
+
+        private bool CanLaunchSelected()
+        {
+            return _gameRunner != null && _selectedGame != null && !_isLaunching;
+        }
+
+        private void RefreshVisibleGames()
+        {
+            IEnumerable<GameViewModel> query = _games;
+
+            if (_searchText.Length > 0)
+            {
+                string searchText = _searchText;
+                query = query.Where(
+                    game => game.Name.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0);
+            }
+
+            query = _sortMode == SortMode.NameDescending
+                ? query.OrderByDescending(game => game.Name, StringComparer.OrdinalIgnoreCase)
+                : query.OrderBy(game => game.Name, StringComparer.OrdinalIgnoreCase);
+
+            _visibleGames.Clear();
+
+            foreach (GameViewModel game in query)
+            {
+                _visibleGames.Add(game);
             }
         }
     }

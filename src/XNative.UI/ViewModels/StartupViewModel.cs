@@ -21,6 +21,7 @@ namespace XNative.UI.ViewModels
             "xnative.graphics",
             "xnative.plugins",
             "xnative.wine",
+            "xnative.ui",
         };
 
         private readonly IEnumerable<IModuleDescriptor> _modules;
