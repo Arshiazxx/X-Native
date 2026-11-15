@@ -134,20 +134,36 @@ namespace XNative.XboxHost.Input
 
         private void Poll()
         {
-            lock (_pollLock)
+            // The whole body is guarded, not just the per-pad read: a
+            // poll runs unattended at ~60 Hz from a timer tick, where
+            // an escaping exception is an unhandled-exception process
+            // crash in UWP. Nothing in here is worth the process — a
+            // missed tick is repeated 16 ms later against a fresh
+            // snapshot — so even the Gamepads snapshot access and the
+            // state writes stay inside the guard.
+            try
             {
-                IReadOnlyList<Gamepad> gamepads = Gamepad.Gamepads;
-                int count = Math.Min(gamepads.Count, InputConstants.MaxPlayers);
-
-                for (int playerIndex = 0; playerIndex < count; playerIndex++)
+                lock (_pollLock)
                 {
-                    _inputService.SetGamepadState(playerIndex, ReadState(gamepads[playerIndex]));
-                }
+                    IReadOnlyList<Gamepad> gamepads = Gamepad.Gamepads;
+                    int count = Math.Min(gamepads.Count, InputConstants.MaxPlayers);
 
-                for (int playerIndex = count; playerIndex < InputConstants.MaxPlayers; playerIndex++)
-                {
-                    _inputService.SetGamepadState(playerIndex, GamepadState.Disconnected);
+                    for (int playerIndex = 0; playerIndex < count; playerIndex++)
+                    {
+                        _inputService.SetGamepadState(playerIndex, ReadState(gamepads[playerIndex]));
+                    }
+
+                    for (int playerIndex = count; playerIndex < InputConstants.MaxPlayers; playerIndex++)
+                    {
+                        _inputService.SetGamepadState(playerIndex, GamepadState.Disconnected);
+                    }
                 }
+            }
+            catch (Exception)
+            {
+                // Swallowed deliberately: see above. The next tick
+                // retries; if the fault persists, the slots keep their
+                // last written states instead of the app dying.
             }
         }
 

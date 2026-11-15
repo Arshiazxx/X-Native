@@ -86,10 +86,14 @@
                 Margin="0,8,0,16"
                 Foreground="#FF6FD08C" />
 
+            <!-- VisibleGames is the view model's documented projection
+                 (filtered/sorted); Games is the raw catalog result.
+                 Selection lives on the view model too, so its
+                 preservation across rescans applies to this list. -->
             <ListView
                 x:Name="GamesList"
-                ItemsSource="{x:Bind GameLibrary.Games, Mode=OneWay}"
-                SelectedItem="{x:Bind SelectedGame, Mode=TwoWay}"
+                ItemsSource="{x:Bind GameLibrary.VisibleGames, Mode=OneWay}"
+                SelectedItem="{x:Bind GameLibrary.SelectedGame, Mode=TwoWay}"
                 SelectionMode="Single"
                 Background="Transparent"
                 BorderThickness="0">

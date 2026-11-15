@@ -20,6 +20,7 @@ namespace XNative.XboxHost.Views
     public sealed partial class MainPage : Page
     {
         private GamepadInputFeed? _inputFeed;
+        private bool _launchInFlight;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="MainPage"/> class.
@@ -40,13 +41,6 @@ namespace XNative.XboxHost.Views
         /// </summary>
         public GameLibraryViewModel? GameLibrary { get; private set; }
 
-        /// <summary>
-        /// Game currently selected in the games list, bound two-way
-        /// from the XAML. Read by the launch handler; it stays
-        /// <c>null</c> until the user picks a game.
-        /// </summary>
-        public GameViewModel? SelectedGame { get; set; }
-
         /// <inheritdoc />
         protected override void OnNavigatedTo(NavigationEventArgs e)
         {
@@ -61,7 +55,21 @@ namespace XNative.XboxHost.Views
             }
 
             StartupViewModel viewModel = Bootstrapper.Resolve<StartupViewModel>();
-            viewModel.Load();
+
+            try
+            {
+                viewModel.Load();
+            }
+            catch (Exception exception)
+            {
+                // Device detection already ran during startup, so a
+                // failure here should be unreachable; if one ever
+                // slips through anyway, show it instead of letting it
+                // escape navigation, where OnNavigationFailed turns it
+                // into a process crash.
+                ShowError(exception);
+                return;
+            }
 
             ViewModel = viewModel;
 
@@ -87,13 +95,25 @@ namespace XNative.XboxHost.Views
 
         private async void OnLaunchButtonClick(object sender, RoutedEventArgs e)
         {
-            GameViewModel? selected = SelectedGame;
+            // Re-entry guard: the view model's LaunchSelectedAsync
+            // guards itself with IsLaunching, and this hand-rolled
+            // copy needs the equivalent or a double-tap runs two
+            // launches concurrently against the singleton runner,
+            // their continuations racing to write the status text.
+            if (_launchInFlight)
+            {
+                return;
+            }
+
+            GameViewModel? selected = GameLibrary?.SelectedGame;
 
             if (selected == null)
             {
                 LaunchStatusText.Text = "Select a game to launch.";
                 return;
             }
+
+            _launchInFlight = true;
 
             try
             {
@@ -142,6 +162,10 @@ namespace XNative.XboxHost.Views
                 LaunchStatusText.Text = "Launch failed: " + exception.Message;
                 ErrorText.Text = LaunchStatusText.Text;
                 ErrorText.Visibility = Visibility.Visible;
+            }
+            finally
+            {
+                _launchInFlight = false;
             }
         }
 
