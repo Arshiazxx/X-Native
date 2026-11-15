@@ -25,6 +25,9 @@ namespace XNative.App
 
         /// <summary>The command line is invalid; <see cref="ParsedCommand.ErrorMessage"/> says why.</summary>
         Error = 5,
+
+        /// <summary>Show or reset the persisted settings; <see cref="ParsedCommand.Argument"/> is the subcommand (<c>show</c> or <c>reset</c>).</summary>
+        Settings = 6,
     }
 
     /// <summary>
@@ -48,8 +51,10 @@ namespace XNative.App
         /// Gets the command's single argument: the games root path for
         /// <see cref="CommandKind.Info"/> and <see cref="CommandKind.Scan"/>
         /// (or <c>null</c> for the configured default root), the executable
-        /// path for <see cref="CommandKind.Inspect"/>, and the game id or
-        /// executable path for <see cref="CommandKind.Launch"/>.
+        /// path for <see cref="CommandKind.Inspect"/>, the game id or
+        /// executable path for <see cref="CommandKind.Launch"/>, and the
+        /// subcommand (<c>show</c> or <c>reset</c>, normalised to lower
+        /// case) for <see cref="CommandKind.Settings"/>.
         /// </summary>
         public string? Argument { get; }
 
@@ -124,6 +129,11 @@ namespace XNative.App
                     args);
             }
 
+            if (Is(first, "settings"))
+            {
+                return ParseSettingsCommand(args);
+            }
+
             if (first.StartsWith("-", StringComparison.Ordinal))
             {
                 return Error($"Unknown option '{first}'.");
@@ -138,6 +148,31 @@ namespace XNative.App
             }
 
             return Error($"Unknown command '{first}'.");
+        }
+
+        private static ParsedCommand ParseSettingsCommand(string[] args)
+        {
+            if (args.Length == 1)
+            {
+                return Error("The 'settings' command requires a subcommand: 'show' or 'reset'.");
+            }
+
+            if (args.Length > 2)
+            {
+                return Error("The 'settings' command takes exactly one subcommand argument ('show' or 'reset').");
+            }
+
+            if (Is(args[1], "show"))
+            {
+                return new ParsedCommand(CommandKind.Settings, "show", null);
+            }
+
+            if (Is(args[1], "reset"))
+            {
+                return new ParsedCommand(CommandKind.Settings, "reset", null);
+            }
+
+            return Error($"Unknown settings subcommand '{args[1]}'. Use 'show' or 'reset'.");
         }
 
         private static ParsedCommand ParseOptionalPathCommand(CommandKind kind, string name, string[] args)

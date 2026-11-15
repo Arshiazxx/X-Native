@@ -10,6 +10,7 @@ using XNative.Core.Devices;
 using XNative.Core.Games;
 using XNative.Platform.Executables;
 using XNative.Platform.Games;
+using XNative.Platform.Logging;
 
 namespace XNative.App
 {
@@ -22,7 +23,11 @@ namespace XNative.App
     /// runner to launch a game (<c>launch</c>), reporting the structured
     /// result honestly — no compatibility backend can actually run a PC
     /// game yet, so a launch reports its failure reason instead of
-    /// pretending the game started.
+    /// pretending the game started. The persisted settings can be shown
+    /// or reset (<c>settings</c>); every command that builds the
+    /// composition loads them first (see <see cref="SettingsBootstrap"/>)
+    /// and applies them to the catalog and log options, with an explicit
+    /// path argument still winning over the persisted games root.
     /// </summary>
     public static class Cli
     {
@@ -83,16 +88,19 @@ namespace XNative.App
                 switch (command.Kind)
                 {
                     case CommandKind.Info:
-                        return await RunInfoAsync(command.Argument, output).ConfigureAwait(false);
+                        return await RunInfoAsync(command.Argument, output, error).ConfigureAwait(false);
 
                     case CommandKind.Scan:
-                        return await RunScanAsync(command.Argument, output).ConfigureAwait(false);
+                        return await RunScanAsync(command.Argument, output, error).ConfigureAwait(false);
 
                     case CommandKind.Inspect:
                         return RunInspect(command.Argument!, output, error);
 
                     case CommandKind.Launch:
                         return await RunLaunchAsync(command.Argument!, output, error).ConfigureAwait(false);
+
+                    case CommandKind.Settings:
+                        return await RunSettingsAsync(command.Argument!, output, error).ConfigureAwait(false);
 
                     default:
                         error.WriteLine($"Error: Unsupported command '{command.Kind}'.");
@@ -138,14 +146,21 @@ namespace XNative.App
             writer.WriteLine("                    result. The exit code is non-zero when the launch");
             writer.WriteLine("                    fails; no backend can run a PC game yet, so a");
             writer.WriteLine("                    failure with its reason is the honest outcome.");
+            writer.WriteLine("  settings show     Show the effective settings: the values the app");
+            writer.WriteLine("                    runs with after the persisted settings are");
+            writer.WriteLine("                    applied over the platform defaults, including");
+            writer.WriteLine("                    which source supplied the games root.");
+            writer.WriteLine("  settings reset    Discard the persisted settings and restore the");
+            writer.WriteLine("                    defaults.");
             writer.WriteLine("  help              Show this usage text.");
             writer.WriteLine();
             writer.WriteLine("Exit codes: 0 = success, 1 = failure, 2 = usage error.");
         }
 
-        private static async Task<int> RunInfoAsync(string? gamesRootPath, TextWriter output)
+        private static async Task<int> RunInfoAsync(string? gamesRootPath, TextWriter output, TextWriter error)
         {
-            using ServiceProvider provider = CompositionRoot.Build(gamesRootPath);
+            SettingsLoadResult load = await LoadSettingsAsync(error).ConfigureAwait(false);
+            using ServiceProvider provider = CompositionRoot.Build(load.Settings, gamesRootPath);
 
             IEnumerable<IModuleDescriptor> modules = provider.GetServices<IModuleDescriptor>();
 
@@ -196,9 +211,10 @@ namespace XNative.App
             return ExitSuccess;
         }
 
-        private static async Task<int> RunScanAsync(string? gamesRootPath, TextWriter output)
+        private static async Task<int> RunScanAsync(string? gamesRootPath, TextWriter output, TextWriter error)
         {
-            using ServiceProvider provider = CompositionRoot.Build(gamesRootPath);
+            SettingsLoadResult load = await LoadSettingsAsync(error).ConfigureAwait(false);
+            using ServiceProvider provider = CompositionRoot.Build(load.Settings, gamesRootPath);
 
             string rootPath = provider
                 .GetRequiredService<IOptions<LocalGameCatalogOptions>>().Value.RootPath;
@@ -266,7 +282,8 @@ namespace XNative.App
 
         private static async Task<int> RunLaunchAsync(string idOrPath, TextWriter output, TextWriter error)
         {
-            using ServiceProvider provider = CompositionRoot.Build();
+            SettingsLoadResult load = await LoadSettingsAsync(error).ConfigureAwait(false);
+            using ServiceProvider provider = CompositionRoot.Build(load.Settings, null);
 
             IGameCatalog catalog = provider.GetRequiredService<IGameCatalog>();
 
@@ -309,6 +326,72 @@ namespace XNative.App
             }
 
             return result.Success ? ExitSuccess : ExitFailure;
+        }
+
+        private static async Task<int> RunSettingsAsync(string subcommand, TextWriter output, TextWriter error)
+        {
+            if (string.Equals(subcommand, "reset", StringComparison.Ordinal))
+            {
+                // A storage failure here is the command's own failure:
+                // it propagates to RunAsync, which reports it and
+                // returns the failure exit code.
+                await SettingsBootstrap.ResetAsync().ConfigureAwait(false);
+                output.WriteLine("Settings reset to the defaults.");
+                return ExitSuccess;
+            }
+
+            // "show": print the values the app actually runs with, read
+            // back from the composed options after the loaded settings
+            // were applied over the platform defaults.
+            SettingsLoadResult load = await LoadSettingsAsync(error).ConfigureAwait(false);
+            using ServiceProvider provider = CompositionRoot.Build(load.Settings, null);
+
+            LocalGameCatalogOptions catalogOptions =
+                provider.GetRequiredService<IOptions<LocalGameCatalogOptions>>().Value;
+            FileLogServiceOptions logOptions =
+                provider.GetRequiredService<IOptions<FileLogServiceOptions>>().Value;
+            GamesRootResolution gamesRoot = SettingsBootstrap.ResolveGamesRoot(load.Settings, null);
+
+            output.WriteLine("Effective settings:");
+            output.WriteLine($"  Games root: {catalogOptions.RootPath} (source: {DescribeGamesRootSource(gamesRoot.Source)})");
+            output.WriteLine($"  Log minimum level: {logOptions.MinimumLevel}");
+            output.WriteLine($"  Scan max depth: {catalogOptions.MaxDepth}");
+            output.WriteLine($"  Executable patterns: {string.Join(", ", catalogOptions.ExecutablePatterns)}");
+            return ExitSuccess;
+        }
+
+        /// <summary>
+        /// Loads the persisted settings for a command, printing the
+        /// one-line fallback warning to <paramref name="error"/> when
+        /// the load failed and the defaults were substituted. Loading
+        /// itself never throws for a settings or storage failure (see
+        /// <see cref="SettingsBootstrap"/>), so a broken settings store
+        /// can never stop a command from running.
+        /// </summary>
+        private static async Task<SettingsLoadResult> LoadSettingsAsync(TextWriter error)
+        {
+            SettingsLoadResult result = await SettingsBootstrap.LoadAsync().ConfigureAwait(false);
+            if (result.LoadWarning != null)
+            {
+                error.WriteLine(result.LoadWarning);
+            }
+
+            return result;
+        }
+
+        private static string DescribeGamesRootSource(GamesRootSource source)
+        {
+            switch (source)
+            {
+                case GamesRootSource.CommandLine:
+                    return "command line";
+
+                case GamesRootSource.Settings:
+                    return "settings file";
+
+                default:
+                    return "platform default";
+            }
         }
 
         private static GameInfo CreateAdHocGame(string fullPath)

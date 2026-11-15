@@ -9,10 +9,10 @@ namespace XNative.App
     /// Running it performs an end-to-end smoke test of the whole stack on
     /// a desktop: it builds the container, prints the resolved modules and
     /// the device description, then scans the games root with the game
-    /// catalog. Subcommands (<c>scan</c>, <c>inspect</c>, <c>launch</c>)
-    /// turn it into a small diagnostic CLI; see <see cref="Cli"/> for the
-    /// full command list. All behaviour lives in <see cref="Cli"/> so the
-    /// commands can be tested without a console.
+    /// catalog. Subcommands (<c>scan</c>, <c>inspect</c>, <c>launch</c>,
+    /// <c>settings</c>) turn it into a small diagnostic CLI; see
+    /// <see cref="Cli"/> for the full command list. All behaviour lives in
+    /// <see cref="Cli"/> so the commands can be tested without a console.
     /// </summary>
     public static class Program
     {
