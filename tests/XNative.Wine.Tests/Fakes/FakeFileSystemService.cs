@@ -53,10 +53,5 @@ namespace XNative.Wine.Tests.Fakes
         {
             return Task.FromResult(string.Empty);
         }
-
-        public Stream OpenRead(string path)
-        {
-            throw new NotSupportedException();
-        }
     }
 }
