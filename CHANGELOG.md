@@ -266,6 +266,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   second activation while a launch was in flight could start a
   duplicate launch. It now ignores activations until the current
   launch finishes, matching `GameLibraryViewModel`'s launch path.
+- The startup screen never listed modules a head registered beyond
+  the shared set: `StartupViewModel` only walked the expected module
+  order, so the Xbox host module (`xnative.xboxhost`) was invisible
+  on the Xbox startup screen. Modules a head registers are now
+  reported after the shared modules, in registration order and
+  always as loaded; a head that does not register such a module
+  shows no entry for it at all, never a missing one.
 - Loaded settings were applied to the catalog and log options without
   the validation `AppSettings` documents, so an instance carrying a
   `null` or unbounded `ExecutablePatterns` list flowed straight into

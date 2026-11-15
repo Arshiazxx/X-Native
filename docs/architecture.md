@@ -330,7 +330,12 @@ through the `ErrorRaised` event.
 `StartupViewModel` compares the module descriptors resolved from the container
 against the expected module order (`xnative.core`, `xnative.platform`,
 `xnative.graphics`, `xnative.plugins`, `xnative.wine`, `xnative.ui`) and
-reports each one as loaded or missing, alongside the device description.
+reports each shared module as loaded or missing. Any modules a head
+registers beyond that shared set (for example `xnative.xboxhost`) are
+appended afterwards in registration order and always reported as loaded —
+a module is only listed because the container resolved it — so a
+head-specific module never shows as missing in a head that does not
+register it. The device description is reported alongside.
 
 `GameLibraryViewModel` is the launcher surface. It owns the full scan result
 (`Games`, ordered by name) and the projection a view binds to
