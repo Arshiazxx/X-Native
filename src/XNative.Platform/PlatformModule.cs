@@ -17,11 +17,37 @@ namespace XNative.Platform
     public static class PlatformModule
     {
         /// <summary>
-        /// Registers the platform module services.
+        /// Registers the platform module services, including the desktop
+        /// <see cref="IProcessService"/> backed by
+        /// <see cref="System.Diagnostics.Process"/>.
         /// </summary>
         /// <param name="services">The service collection to populate.</param>
         /// <returns>The same service collection, to allow chaining.</returns>
         public static IServiceCollection AddXNativePlatform(this IServiceCollection services)
+        {
+            return AddPlatformServices(services, includeProcessService: true);
+        }
+
+        /// <summary>
+        /// Registers the platform module services <em>except</em>
+        /// <see cref="IProcessService"/>. Hosts whose sandbox forbids
+        /// starting processes (Xbox / UWP) compose this variant and
+        /// register their own honest <see cref="IProcessService"/>: the
+        /// desktop implementation wraps
+        /// <see cref="System.Diagnostics.Process"/>, which cannot start
+        /// processes inside the UWP sandbox, and claiming otherwise
+        /// would promise a capability the platform does not have.
+        /// </summary>
+        /// <param name="services">The service collection to populate.</param>
+        /// <returns>The same service collection, to allow chaining.</returns>
+        public static IServiceCollection AddXNativePlatformCore(this IServiceCollection services)
+        {
+            return AddPlatformServices(services, includeProcessService: false);
+        }
+
+        private static IServiceCollection AddPlatformServices(
+            IServiceCollection services,
+            bool includeProcessService)
         {
             if (services == null)
             {
@@ -54,10 +80,13 @@ namespace XNative.Platform
             services.AddSingleton<ILogService, FileLogService>();
             services.AddSingleton<IStorageService, FileStorageService>();
 
-            // SystemProcessService is IDisposable and owns its tracked
-            // process handles; the singleton registration lets the
-            // container dispose it at provider shutdown.
-            services.AddSingleton<IProcessService, SystemProcessService>();
+            if (includeProcessService)
+            {
+                // SystemProcessService is IDisposable and owns its tracked
+                // process handles; the singleton registration lets the
+                // container dispose it at provider shutdown.
+                services.AddSingleton<IProcessService, SystemProcessService>();
+            }
 
             services.AddSingleton<IGameCatalog, LocalGameCatalog>();
             return services;

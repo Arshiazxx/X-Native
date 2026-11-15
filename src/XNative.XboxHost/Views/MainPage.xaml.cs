@@ -107,7 +107,20 @@ namespace XNative.XboxHost.Views
                 }
 
                 IGameRunner runner = Bootstrapper.Resolve<IGameRunner>();
-                LaunchResult result = await runner.LaunchAsync(game);
+                LaunchResult result;
+
+                // Mirror the desktop launch path: a game's manifest
+                // arguments travel through LaunchOptions instead of
+                // being silently dropped.
+                if (!string.IsNullOrWhiteSpace(game.LaunchArguments))
+                {
+                    var options = new LaunchOptions { Arguments = game.LaunchArguments };
+                    result = await runner.LaunchAsync(game, options);
+                }
+                else
+                {
+                    result = await runner.LaunchAsync(game);
+                }
 
                 if (result.Success)
                 {

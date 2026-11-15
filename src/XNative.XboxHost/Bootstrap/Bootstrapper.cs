@@ -4,6 +4,7 @@ using XNative.Core;
 using XNative.Core.Abstractions;
 using XNative.Graphics;
 using XNative.Platform;
+using XNative.Platform.Games;
 using XNative.Platform.Input;
 using XNative.Plugins;
 using XNative.UI;
@@ -37,8 +38,17 @@ namespace XNative.XboxHost.Bootstrap
         /// Registers every module of the application.
         /// </summary>
         /// <param name="services">The service collection to populate.</param>
+        /// <param name="gamesRootPath">
+        /// The directory the local game catalog scans, or <c>null</c> to
+        /// keep the platform module default. Games on Xbox live on
+        /// removable or external storage rather than in the default
+        /// documents folder, so the host passes that location here once
+        /// it knows it.
+        /// </param>
         /// <returns>The same service collection, to allow chaining.</returns>
-        public static IServiceCollection AddXNative(this IServiceCollection services)
+        public static IServiceCollection AddXNative(
+            this IServiceCollection services,
+            string? gamesRootPath = null)
         {
             if (services == null)
             {
@@ -46,13 +56,30 @@ namespace XNative.XboxHost.Bootstrap
             }
 
             services.AddSingleton<IModuleDescriptor, CoreModuleDescriptor>();
-            services.AddXNativePlatform();
+
+            // The Xbox head composes the platform core, not the full
+            // desktop platform module: the desktop IProcessService wraps
+            // System.Diagnostics.Process, which the UWP sandbox forbids.
+            // The head registers its own honest implementation instead,
+            // one that reports the limitation instead of failing at
+            // first use.
+            services.AddXNativePlatformCore();
+            services.AddSingleton<IProcessService, UnavailableProcessService>();
             services.AddXNativeInput();
             services.AddXNativeGraphics();
             services.AddXNativeWine();
             services.AddXNativePlugins();
             services.AddXNativeUI();
             services.AddXboxHost();
+
+            if (!string.IsNullOrWhiteSpace(gamesRootPath))
+            {
+                services.Configure<LocalGameCatalogOptions>(options =>
+                {
+                    options.RootPath = gamesRootPath!;
+                });
+            }
+
             return services;
         }
 

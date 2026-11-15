@@ -39,7 +39,13 @@ namespace XNative.XboxHost
 
             ApplicationView.GetForCurrentView().SetDesiredBoundsMode(ApplicationViewBoundsMode.UseCoreWindow);
 
-            Startup ??= Bootstrapper.Start();
+            // A failed start is not cached: the next activation retries
+            // Bootstrapper.Start() instead of reusing the failure for
+            // the rest of the process lifetime.
+            if (Startup == null || !Startup.IsSuccess)
+            {
+                Startup = Bootstrapper.Start();
+            }
 
             if (!(Window.Current.Content is Frame rootFrame))
             {
