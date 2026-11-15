@@ -273,6 +273,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reported after the shared modules, in registration order and
   always as loaded; a head that does not register such a module
   shows no entry for it at all, never a missing one.
+- On the Xbox head, navigating away from the main page and back
+  discarded the scanned library: `GameLibraryViewModel` was registered
+  as a transient and the page is not cached, so every navigation
+  resolved a fresh, empty view model — the games, the search text and
+  the selection were lost, and the library had to be scanned again by
+  hand. The view model is now a singleton (per provider), so
+  re-navigation rebinds the instance that already holds the scan,
+  while a rebuilt provider — a failed start, a reset — still starts
+  from an empty library. `StartupViewModel` deliberately stays
+  transient: it carries no scan state.
 - Loaded settings were applied to the catalog and log options without
   the validation `AppSettings` documents, so an instance carrying a
   `null` or unbounded `ExecutablePatterns` list flowed straight into

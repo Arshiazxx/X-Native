@@ -319,8 +319,18 @@ View framework agnostic MVVM primitives: `ObservableObject`, `ViewModelBase`,
 `RelayCommand`, `AsyncRelayCommand` and `INavigationService`, plus the view
 models under `ViewModels`. It contains no views and no XAML, so the same view
 models can be reused by a UWP head, by a desktop head or by tests.
-`AddXNativeUI()` registers the module descriptor and the `StartupViewModel`
-and `GameLibraryViewModel` as transients.
+`AddXNativeUI()` registers the module descriptor and
+`GameLibraryViewModel` as singletons and `StartupViewModel` as a
+transient. The asymmetry is deliberate: `GameLibraryViewModel` owns the
+scanned library, and a head whose pages are not cached resolves it again
+on every navigation — as a transient, each navigation would get a fresh,
+empty view model and force a full rescan; as a singleton it rebinds the
+instance that already holds the scan, the search text and the selection.
+The singleton is per provider, so a host that disposes its provider and
+builds a new one (a failed start, a reset) still starts from an empty
+library. `StartupViewModel` carries no scan state and its `Load` is
+cheap, so it stays transient and simply re-reads the current state on
+each navigation.
 
 `AsyncRelayCommand` wraps an asynchronous delegate: it reports
 `CanExecute == false` while running, and an exception thrown by the delegate
