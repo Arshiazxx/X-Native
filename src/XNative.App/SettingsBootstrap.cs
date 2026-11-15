@@ -60,10 +60,14 @@ namespace XNative.App
     /// </summary>
     public sealed class SettingsLoadResult
     {
-        internal SettingsLoadResult(AppSettings settings, string? loadWarning)
+        internal SettingsLoadResult(
+            AppSettings settings,
+            string? loadWarning,
+            SettingsLoadOutcome? storedOutcome = null)
         {
             Settings = settings;
             LoadWarning = loadWarning;
+            StoredOutcome = storedOutcome;
         }
 
         /// <summary>
@@ -79,9 +83,24 @@ namespace XNative.App
         /// settings (or their documented absence) were used. Corrupt
         /// stored data is <em>not</em> a load failure: the settings
         /// service already maps it to the defaults by contract, so no
-        /// warning is produced for it.
+        /// warning is produced for it — the rejection is observable
+        /// through <see cref="StoredOutcome"/> instead.
         /// </summary>
         public string? LoadWarning { get; }
+
+        /// <summary>
+        /// Gets what became of the stored settings during the load, as
+        /// reported by the settings service through
+        /// <see cref="ISettingsLoadOutcomeProvider"/>: whether stored
+        /// settings were loaded, were absent, or were rejected (with
+        /// the rejection category). <c>null</c> when the settings
+        /// service does not report an outcome, or when the load failed
+        /// before an outcome could be known (see
+        /// <see cref="LoadWarning"/>). This is what lets a diagnostic
+        /// surface such as <c>settings show</c> distinguish "no
+        /// settings file" from "your settings file was ignored".
+        /// </summary>
+        public SettingsLoadOutcome? StoredOutcome { get; }
 
         /// <summary>
         /// Gets a value indicating whether <see cref="Settings"/> is a
@@ -127,6 +146,12 @@ namespace XNative.App
     /// including building the throwaway provider and resolving the
     /// settings service from it, so a construction failure is a
     /// fallback too, not an escape. Cancellation is not swallowed.
+    /// Separately, when the settings service reports a load outcome
+    /// (<see cref="ISettingsLoadOutcomeProvider"/>), the result carries
+    /// it on <see cref="SettingsLoadResult.StoredOutcome"/> so a
+    /// diagnostic caller can distinguish stored settings that were
+    /// absent from stored settings that were rejected — the defaults
+    /// look identical either way.
     /// </para>
     /// <para>
     /// Games root precedence, highest first: an explicit command line
@@ -239,7 +264,16 @@ namespace XNative.App
             try
             {
                 AppSettings settings = await settingsService.GetAsync(cancellationToken).ConfigureAwait(false);
-                return new SettingsLoadResult(settings, null);
+
+                // The settings themselves cannot say whether they came
+                // from storage or are the defaults substituted for
+                // absent/rejected data; a service that implements the
+                // outcome side channel can. Services that do not leave
+                // the outcome null (unknown), which callers must treat
+                // as "not reported", never as a guessed state.
+                SettingsLoadOutcome? storedOutcome =
+                    (settingsService as ISettingsLoadOutcomeProvider)?.LastLoadOutcome;
+                return new SettingsLoadResult(settings, null, storedOutcome);
             }
             catch (OperationCanceledException)
             {

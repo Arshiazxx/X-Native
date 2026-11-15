@@ -62,8 +62,20 @@ namespace XNative.Platform.Settings
     /// Every value handed out is a clone, so callers cannot mutate the
     /// cache.
     /// </para>
+    /// <para>
+    /// Observability: because <see cref="GetAsync"/> deliberately
+    /// collapses absent, unreadable and corrupt stored data into the
+    /// same defaults return value, the service also implements
+    /// <see cref="ISettingsLoadOutcomeProvider"/>: after a load,
+    /// <see cref="LastLoadOutcome"/> records which of those cases
+    /// actually happened, so a diagnostic caller (for example a
+    /// <c>settings show</c> command) can tell a user their stored file
+    /// was rejected instead of leaving them to guess why their values
+    /// were ignored. The load behaviour itself is unchanged by the
+    /// recording.
+    /// </para>
     /// </remarks>
-    public sealed class JsonSettingsService : ISettingsService, IDisposable
+    public sealed class JsonSettingsService : ISettingsService, ISettingsLoadOutcomeProvider, IDisposable
     {
         /// <summary>
         /// Storage key the settings JSON is stored under.
@@ -84,6 +96,7 @@ namespace XNative.Platform.Settings
         private readonly IStorageService _storage;
         private readonly SemaphoreSlim _gate = new SemaphoreSlim(1, 1);
         private AppSettings? _cached;
+        private SettingsLoadOutcome? _lastLoadOutcome;
 
         // 0 = alive, 1 = disposed. Manipulated only through Interlocked
         // / Volatile so Dispose can race an in-flight operation safely
@@ -102,6 +115,9 @@ namespace XNative.Platform.Settings
         {
             _storage = storage ?? throw new ArgumentNullException(nameof(storage));
         }
+
+        /// <inheritdoc />
+        public SettingsLoadOutcome? LastLoadOutcome => _lastLoadOutcome;
 
         /// <inheritdoc />
         public async Task<AppSettings> GetAsync(CancellationToken cancellationToken = default)
@@ -148,6 +164,9 @@ namespace XNative.Platform.Settings
 
                 await _storage.WriteTextAsync(StorageKey, json, cancellationToken).ConfigureAwait(false);
                 _cached = snapshot;
+                _lastLoadOutcome = new SettingsLoadOutcome(
+                    StoredSettingsState.Loaded,
+                    SettingsRejectionReason.None);
             }
             finally
             {
@@ -168,6 +187,9 @@ namespace XNative.Platform.Settings
 
                 await _storage.WriteTextAsync(StorageKey, json, cancellationToken).ConfigureAwait(false);
                 _cached = defaults;
+                _lastLoadOutcome = new SettingsLoadOutcome(
+                    StoredSettingsState.Loaded,
+                    SettingsRejectionReason.None);
             }
             finally
             {
@@ -248,16 +270,22 @@ namespace XNative.Platform.Settings
                 // instead of crashing startup (see the class remarks).
                 // Cancellation is neither exception type and still
                 // propagates.
-                return AppSettings.CreateDefault();
+                return DefaultsWithOutcome(
+                    StoredSettingsState.Rejected,
+                    SettingsRejectionReason.ReadFailure);
             }
             catch (UnauthorizedAccessException)
             {
-                return AppSettings.CreateDefault();
+                return DefaultsWithOutcome(
+                    StoredSettingsState.Rejected,
+                    SettingsRejectionReason.ReadFailure);
             }
 
             if (string.IsNullOrWhiteSpace(text))
             {
-                return AppSettings.CreateDefault();
+                return DefaultsWithOutcome(
+                    StoredSettingsState.Absent,
+                    SettingsRejectionReason.None);
             }
 
             SettingsDto? dto;
@@ -267,20 +295,28 @@ namespace XNative.Platform.Settings
             }
             catch (JsonException)
             {
-                return AppSettings.CreateDefault();
+                return DefaultsWithOutcome(
+                    StoredSettingsState.Rejected,
+                    SettingsRejectionReason.CorruptData);
             }
             catch (InvalidOperationException)
             {
-                return AppSettings.CreateDefault();
+                return DefaultsWithOutcome(
+                    StoredSettingsState.Rejected,
+                    SettingsRejectionReason.CorruptData);
             }
             catch (NotSupportedException)
             {
-                return AppSettings.CreateDefault();
+                return DefaultsWithOutcome(
+                    StoredSettingsState.Rejected,
+                    SettingsRejectionReason.CorruptData);
             }
 
             if (dto == null)
             {
-                return AppSettings.CreateDefault();
+                return DefaultsWithOutcome(
+                    StoredSettingsState.Rejected,
+                    SettingsRejectionReason.CorruptData);
             }
 
             // Any version other than the one this build writes —
@@ -288,7 +324,9 @@ namespace XNative.Platform.Settings
             // interpret or overwrite.
             if (dto.Version != CurrentVersion)
             {
-                return AppSettings.CreateDefault();
+                return DefaultsWithOutcome(
+                    StoredSettingsState.Rejected,
+                    SettingsRejectionReason.UnsupportedVersion);
             }
 
             var settings = new AppSettings
@@ -305,10 +343,30 @@ namespace XNative.Platform.Settings
             }
             catch (ArgumentException)
             {
-                return AppSettings.CreateDefault();
+                return DefaultsWithOutcome(
+                    StoredSettingsState.Rejected,
+                    SettingsRejectionReason.InvalidValues);
             }
 
+            _lastLoadOutcome = new SettingsLoadOutcome(
+                StoredSettingsState.Loaded,
+                SettingsRejectionReason.None);
             return settings;
+        }
+
+        /// <summary>
+        /// Records <paramref name="state"/>/<paramref name="reason"/>
+        /// as the load outcome and returns the defaults the outcome
+        /// substitutes. Every defaults path out of
+        /// <see cref="LoadFromStorageAsync"/> goes through here (or
+        /// sets the outcome itself, on the success path) so the
+        /// recorded outcome can never drift from the decision that
+        /// produced the returned values.
+        /// </summary>
+        private AppSettings DefaultsWithOutcome(StoredSettingsState state, SettingsRejectionReason reason)
+        {
+            _lastLoadOutcome = new SettingsLoadOutcome(state, reason);
+            return AppSettings.CreateDefault();
         }
 
         private static LogLevel ParseLogLevel(string? name)

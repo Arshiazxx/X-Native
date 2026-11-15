@@ -108,6 +108,7 @@ namespace XNative.App.Tests
             Assert.Equal(Cli.ExitSuccess, exitCode);
             string text = output.ToString();
             Assert.Contains("Effective settings:", text);
+            Assert.Contains("Source:", text);
             Assert.Contains("Games root:", text);
             Assert.Contains("(source:", text);
             Assert.Contains("Log minimum level:", text);

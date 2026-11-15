@@ -11,6 +11,7 @@ using XNative.Core.Games;
 using XNative.Platform.Executables;
 using XNative.Platform.Games;
 using XNative.Platform.Logging;
+using XNative.Platform.Settings;
 
 namespace XNative.App
 {
@@ -363,6 +364,18 @@ namespace XNative.App
             GamesRootResolution gamesRoot = SettingsBootstrap.ResolveGamesRoot(load.Settings, null);
 
             output.WriteLine("Effective settings:");
+            if (load.StoredOutcome != null)
+            {
+                // The effective values alone cannot distinguish "no
+                // settings file" from "the settings file was rejected
+                // and the defaults substituted" — the exact confusion
+                // this diagnostic command exists to resolve — so the
+                // load outcome is reported alongside them. Reporting a
+                // rejected file is still a successful show: the exit
+                // code stays success, like the values themselves.
+                output.WriteLine($"  Source: {DescribeStoredOutcome(load.StoredOutcome)}");
+            }
+
             output.WriteLine($"  Games root: {catalogOptions.RootPath} (source: {DescribeGamesRootSource(gamesRoot.Source)})");
             output.WriteLine($"  Log minimum level: {logOptions.MinimumLevel}");
             output.WriteLine($"  Scan max depth: {catalogOptions.MaxDepth}");
@@ -413,6 +426,42 @@ namespace XNative.App
             }
 
             return result;
+        }
+
+        private static string DescribeStoredOutcome(SettingsLoadOutcome outcome)
+        {
+            switch (outcome.State)
+            {
+                case StoredSettingsState.Loaded:
+                    return "settings file";
+
+                case StoredSettingsState.Absent:
+                    return "defaults (no settings file found)";
+
+                default:
+                    return $"defaults (settings file could not be used: {DescribeRejectionReason(outcome.RejectionReason)})";
+            }
+        }
+
+        private static string DescribeRejectionReason(SettingsRejectionReason reason)
+        {
+            switch (reason)
+            {
+                case SettingsRejectionReason.CorruptData:
+                    return "not valid settings data";
+
+                case SettingsRejectionReason.UnsupportedVersion:
+                    return "unsupported format version";
+
+                case SettingsRejectionReason.InvalidValues:
+                    return "stored values failed validation";
+
+                case SettingsRejectionReason.ReadFailure:
+                    return "could not be read";
+
+                default:
+                    return "unknown reason";
+            }
         }
 
         private static string DescribeGamesRootSource(GamesRootSource source)

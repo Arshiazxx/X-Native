@@ -373,6 +373,125 @@ namespace XNative.App.Tests
             Assert.Equal(5, result.Settings.ScanMaxDepth);
         }
 
+        // ---- Load outcome: absent vs loaded vs rejected -----------------
+        //
+        // The loaded settings alone cannot distinguish "nothing was
+        // stored" from "the stored file was rejected" — the defaults
+        // look the same — so the bootstrap carries the settings
+        // service's load outcome on the result for diagnostics such
+        // as `settings show`.
+
+        [Fact]
+        public async Task LoadAsync_NoStoredSettings_ReportsAbsentOutcome()
+        {
+            var service = new JsonSettingsService(new InMemoryStorageService());
+
+            SettingsLoadResult result = await SettingsBootstrap.LoadAsync(service);
+
+            Assert.False(result.UsedFallback);
+            Assert.Null(result.LoadWarning);
+            Assert.NotNull(result.StoredOutcome);
+            Assert.Equal(StoredSettingsState.Absent, result.StoredOutcome!.State);
+            Assert.Equal(SettingsRejectionReason.None, result.StoredOutcome.RejectionReason);
+        }
+
+        [Fact]
+        public async Task LoadAsync_ValidStoredJson_ReportsLoadedOutcome()
+        {
+            var storage = new InMemoryStorageService();
+            storage.Seed(
+                JsonSettingsService.StorageKey,
+                "{\"version\": 1, \"gamesRootPath\": \"stored-root\", "
+                + "\"logMinimumLevel\": \"Warning\", \"scanMaxDepth\": 5, "
+                + "\"executablePatterns\": [\"*.exe\"]}");
+            var service = new JsonSettingsService(storage);
+
+            SettingsLoadResult result = await SettingsBootstrap.LoadAsync(service);
+
+            Assert.False(result.UsedFallback);
+            Assert.NotNull(result.StoredOutcome);
+            Assert.Equal(StoredSettingsState.Loaded, result.StoredOutcome!.State);
+            Assert.Equal(SettingsRejectionReason.None, result.StoredOutcome.RejectionReason);
+        }
+
+        [Fact]
+        public async Task LoadAsync_CorruptStoredJson_ReportsRejectedOutcomeWithoutWarning()
+        {
+            // The rejection stays warning-free by design (corruption
+            // is the service's contract, not a load failure), but it
+            // is no longer invisible: the outcome names it, so a
+            // diagnostic surface can tell the user their file was
+            // ignored instead of showing defaults without explanation.
+            var storage = new InMemoryStorageService();
+            storage.Seed(JsonSettingsService.StorageKey, "{ this is not settings json");
+            var service = new JsonSettingsService(storage);
+
+            SettingsLoadResult result = await SettingsBootstrap.LoadAsync(service);
+
+            Assert.False(result.UsedFallback);
+            Assert.Null(result.LoadWarning);
+            Assert.NotNull(result.StoredOutcome);
+            Assert.Equal(StoredSettingsState.Rejected, result.StoredOutcome!.State);
+            Assert.Equal(SettingsRejectionReason.CorruptData, result.StoredOutcome.RejectionReason);
+            Assert.Null(result.Settings.GamesRootPath);
+            Assert.Equal(AppSettings.DefaultScanMaxDepth, result.Settings.ScanMaxDepth);
+        }
+
+        [Fact]
+        public async Task LoadAsync_FutureVersionStoredJson_ReportsRejectedUnsupportedVersion()
+        {
+            var storage = new InMemoryStorageService();
+            storage.Seed(
+                JsonSettingsService.StorageKey,
+                "{\"version\": 99, \"gamesRootPath\": \"stored-root\"}");
+            var service = new JsonSettingsService(storage);
+
+            SettingsLoadResult result = await SettingsBootstrap.LoadAsync(service);
+
+            Assert.False(result.UsedFallback);
+            Assert.NotNull(result.StoredOutcome);
+            Assert.Equal(StoredSettingsState.Rejected, result.StoredOutcome!.State);
+            Assert.Equal(
+                SettingsRejectionReason.UnsupportedVersion,
+                result.StoredOutcome.RejectionReason);
+        }
+
+        [Fact]
+        public async Task LoadAsync_InvalidStoredValues_ReportsRejectedInvalidValues()
+        {
+            var storage = new InMemoryStorageService();
+            storage.Seed(
+                JsonSettingsService.StorageKey,
+                "{\"version\": 1, \"gamesRootPath\": null, "
+                + "\"logMinimumLevel\": \"Warning\", \"scanMaxDepth\": 99, "
+                + "\"executablePatterns\": [\"*.exe\"]}");
+            var service = new JsonSettingsService(storage);
+
+            SettingsLoadResult result = await SettingsBootstrap.LoadAsync(service);
+
+            Assert.False(result.UsedFallback);
+            Assert.NotNull(result.StoredOutcome);
+            Assert.Equal(StoredSettingsState.Rejected, result.StoredOutcome!.State);
+            Assert.Equal(
+                SettingsRejectionReason.InvalidValues,
+                result.StoredOutcome.RejectionReason);
+        }
+
+        [Fact]
+        public async Task LoadAsync_ServiceWithoutOutcomeProvider_ReportsNoStoredOutcome()
+        {
+            // A settings service that does not implement the outcome
+            // side channel leaves the outcome unknown (null) — the
+            // bootstrap must not guess a state for it.
+            var stored = new AppSettings { GamesRootPath = "stored-root" };
+
+            SettingsLoadResult result = await SettingsBootstrap.LoadAsync(new StubSettingsService(stored));
+
+            Assert.False(result.UsedFallback);
+            Assert.Null(result.StoredOutcome);
+            Assert.Equal("stored-root", result.Settings.GamesRootPath);
+        }
+
         // ---- Doubles ----------------------------------------------------
 
         private sealed class StubSettingsService : ISettingsService

@@ -451,6 +451,159 @@ namespace XNative.Platform.Tests.Settings
             AssertDefaults(await fresh.GetAsync());
         }
 
+        // ---- Load outcome (ISettingsLoadOutcomeProvider) ----------------
+        //
+        // GetAsync deliberately collapses absent / unreadable / corrupt
+        // stored data into the same defaults; these tests pin the side
+        // channel that keeps the three cases distinguishable for
+        // diagnostics.
+
+        private static void AssertOutcome(
+            JsonSettingsService service,
+            StoredSettingsState state,
+            SettingsRejectionReason reason)
+        {
+            Assert.NotNull(service.LastLoadOutcome);
+            Assert.Equal(state, service.LastLoadOutcome!.State);
+            Assert.Equal(reason, service.LastLoadOutcome.RejectionReason);
+        }
+
+        [Fact]
+        public void LastLoadOutcome_BeforeAnyStorageInteraction_IsNull()
+        {
+            var service = new JsonSettingsService(new FakeStorageService());
+
+            Assert.Null(service.LastLoadOutcome);
+        }
+
+        [Fact]
+        public async Task Get_WhenEmpty_ReportsAbsentOutcome()
+        {
+            var service = new JsonSettingsService(new FakeStorageService());
+
+            AssertDefaults(await service.GetAsync());
+
+            AssertOutcome(service, StoredSettingsState.Absent, SettingsRejectionReason.None);
+        }
+
+        [Fact]
+        public async Task Get_ValidStoredJson_ReportsLoadedOutcome()
+        {
+            const string payload = "{\"version\":1,\"gamesRootPath\":\"E:\\\\Games\","
+                + "\"logMinimumLevel\":\"Warning\",\"scanMaxDepth\":7,"
+                + "\"executablePatterns\":[\"*.exe\",\"*.lnk\"]}";
+            var storage = new FakeStorageService();
+            storage.Seed(JsonSettingsService.StorageKey, payload);
+            var service = new JsonSettingsService(storage);
+
+            AssertCustom(await service.GetAsync());
+
+            AssertOutcome(service, StoredSettingsState.Loaded, SettingsRejectionReason.None);
+        }
+
+        [Fact]
+        public async Task Get_CorruptJson_ReportsRejectedCorruptDataOutcome()
+        {
+            var storage = new FakeStorageService();
+            storage.Seed(JsonSettingsService.StorageKey, "{ this is not json");
+            var service = new JsonSettingsService(storage);
+
+            AssertDefaults(await service.GetAsync());
+
+            AssertOutcome(service, StoredSettingsState.Rejected, SettingsRejectionReason.CorruptData);
+        }
+
+        [Fact]
+        public async Task Get_FutureVersion_ReportsRejectedUnsupportedVersionOutcome()
+        {
+            const string payload = "{\"version\":2,\"gamesRootPath\":\"E:\\\\Games\","
+                + "\"logMinimumLevel\":\"Warning\",\"scanMaxDepth\":7,"
+                + "\"executablePatterns\":[\"*.exe\"]}";
+            var storage = new FakeStorageService();
+            storage.Seed(JsonSettingsService.StorageKey, payload);
+            var service = new JsonSettingsService(storage);
+
+            AssertDefaults(await service.GetAsync());
+
+            AssertOutcome(service, StoredSettingsState.Rejected, SettingsRejectionReason.UnsupportedVersion);
+        }
+
+        [Fact]
+        public async Task Get_InvalidStoredValues_ReportsRejectedInvalidValuesOutcome()
+        {
+            const string payload = "{\"version\":1,\"gamesRootPath\":null,"
+                + "\"logMinimumLevel\":\"Warning\",\"scanMaxDepth\":99,"
+                + "\"executablePatterns\":[\"*.exe\"]}";
+            var storage = new FakeStorageService();
+            storage.Seed(JsonSettingsService.StorageKey, payload);
+            var service = new JsonSettingsService(storage);
+
+            AssertDefaults(await service.GetAsync());
+
+            AssertOutcome(service, StoredSettingsState.Rejected, SettingsRejectionReason.InvalidValues);
+        }
+
+        [Fact]
+        public async Task Get_StorageReadIOException_ReportsRejectedReadFailureOutcome()
+        {
+            var storage = new ThrowingStorageService
+            {
+                ReadException = new IOException("disk gone"),
+            };
+            var service = new JsonSettingsService(storage);
+
+            AssertDefaults(await service.GetAsync());
+
+            AssertOutcome(service, StoredSettingsState.Rejected, SettingsRejectionReason.ReadFailure);
+        }
+
+        [Fact]
+        public async Task Get_CachedSecondCall_RetainsTheLoadOutcome()
+        {
+            // The outcome describes the stored data, not the most
+            // recent call: a cache hit does not erase or replace it.
+            var storage = new FakeStorageService();
+            storage.Seed(JsonSettingsService.StorageKey, "{ this is not json");
+            var service = new JsonSettingsService(storage);
+
+            AssertDefaults(await service.GetAsync());
+            AssertDefaults(await service.GetAsync());
+            Assert.Equal(1, storage.ReadCount);
+
+            AssertOutcome(service, StoredSettingsState.Rejected, SettingsRejectionReason.CorruptData);
+        }
+
+        [Fact]
+        public async Task Save_AfterRejectedLoad_ReportsLoadedOutcome()
+        {
+            // A save replaces the rejected data with valid stored
+            // settings; the outcome must say so, not keep reporting
+            // the earlier rejection.
+            var storage = new FakeStorageService();
+            storage.Seed(JsonSettingsService.StorageKey, "{ this is not json");
+            var service = new JsonSettingsService(storage);
+            AssertDefaults(await service.GetAsync());
+            AssertOutcome(service, StoredSettingsState.Rejected, SettingsRejectionReason.CorruptData);
+
+            await service.SaveAsync(CustomSettings());
+
+            AssertOutcome(service, StoredSettingsState.Loaded, SettingsRejectionReason.None);
+        }
+
+        [Fact]
+        public async Task Reset_AfterRejectedLoad_ReportsLoadedOutcome()
+        {
+            var storage = new FakeStorageService();
+            storage.Seed(JsonSettingsService.StorageKey, "{ this is not json");
+            var service = new JsonSettingsService(storage);
+            AssertDefaults(await service.GetAsync());
+            AssertOutcome(service, StoredSettingsState.Rejected, SettingsRejectionReason.CorruptData);
+
+            await service.ResetAsync();
+
+            AssertOutcome(service, StoredSettingsState.Loaded, SettingsRejectionReason.None);
+        }
+
         /// <summary>
         /// Storage whose reads always fail with a configured exception;
         /// writes succeed silently.
