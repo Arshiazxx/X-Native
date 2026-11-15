@@ -106,7 +106,9 @@ How `LocalGameCatalog` finds games, in order:
 3. If there is no manifest, or the manifest is invalid or names a missing
    executable, the folder is scanned for executables matching the configured
    patterns (`*.exe` by default). Each executable becomes a game entry named
-   after its file name, with no metadata.
+   after its file name, with no metadata. A blank entry in the pattern list
+   matches nothing — it is never widened into a match-everything search; a
+   caller that wants every file asks for it explicitly with `*.*`.
 4. Folders the process cannot read are skipped; a scan never fails because
    one folder was inaccessible.
 

@@ -316,6 +316,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Error: Games root not found: <path>` and exits `1`; with no path
   argument, a missing default or settings-supplied root keeps the
   empty-library behaviour.
+- `SystemFileSystemService.GetFiles` silently widened a blank search
+  pattern to `"*.*"`: a null, empty, or whitespace-only pattern
+  enumerated every file in the folder instead of none. Settings
+  validation already rejected blank executable patterns, but the
+  public service API did not, so a blank entry reaching it catalogued
+  every file in a game folder as a candidate executable. A blank
+  pattern now matches nothing and returns an empty array — the
+  enumeration methods' existing convention of answering bad input
+  with an empty result — and a caller that wants every file passes
+  an explicit `"*.*"` pattern, which still works.
 
 ### Notes
 
