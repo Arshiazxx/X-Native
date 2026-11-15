@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -35,7 +36,23 @@ namespace XNative.Platform.Settings
     /// stored version higher than <see cref="CurrentVersion"/> is a
     /// future format this build does not understand; it is treated the
     /// same way (defaults, no throw, no overwrite) so a newer build's
-    /// settings never crash or get clobbered by an older build.
+    /// settings never crash or get clobbered by an older build. A
+    /// storage <em>read failure</em> (an
+    /// <see cref="System.IO.IOException"/> or
+    /// <see cref="UnauthorizedAccessException"/> from the storage
+    /// backend, for example a permissions-broken app-data folder) is
+    /// treated the same way again: the data is unusable either way, so
+    /// <see cref="GetAsync"/> returns the defaults rather than
+    /// crashing startup. Cancellation still propagates.
+    /// </para>
+    /// <para>
+    /// Disposal: <see cref="Dispose"/> is idempotent, safe to call
+    /// from several threads at once, and safe to call while an
+    /// operation is in flight. An in-flight operation either runs to
+    /// completion with its real result or observes the disposal; its
+    /// result is never masked by the disposal. Operations started
+    /// after disposal throw
+    /// <see cref="ObjectDisposedException"/> naming this service.
     /// </para>
     /// <para>
     /// The first successful load is cached in a thread-safe manner;
@@ -67,7 +84,11 @@ namespace XNative.Platform.Settings
         private readonly IStorageService _storage;
         private readonly SemaphoreSlim _gate = new SemaphoreSlim(1, 1);
         private AppSettings? _cached;
-        private bool _disposed;
+
+        // 0 = alive, 1 = disposed. Manipulated only through Interlocked
+        // / Volatile so Dispose can race an in-flight operation safely
+        // (the same pattern LocalGameCatalog uses).
+        private int _disposed;
 
         /// <summary>
         /// Initializes a new instance of the
@@ -85,9 +106,11 @@ namespace XNative.Platform.Settings
         /// <inheritdoc />
         public async Task<AppSettings> GetAsync(CancellationToken cancellationToken = default)
         {
-            await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            await WaitGateAsync(cancellationToken).ConfigureAwait(false);
             try
             {
+                ThrowIfDisposed();
+
                 if (_cached != null)
                 {
                     return _cached.Clone();
@@ -99,7 +122,7 @@ namespace XNative.Platform.Settings
             }
             finally
             {
-                _gate.Release();
+                ReleaseGate();
             }
         }
 
@@ -118,15 +141,17 @@ namespace XNative.Platform.Settings
             AppSettings snapshot = settings.Clone();
             string json = Serialize(snapshot);
 
-            await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            await WaitGateAsync(cancellationToken).ConfigureAwait(false);
             try
             {
+                ThrowIfDisposed();
+
                 await _storage.WriteTextAsync(StorageKey, json, cancellationToken).ConfigureAwait(false);
                 _cached = snapshot;
             }
             finally
             {
-                _gate.Release();
+                ReleaseGate();
             }
         }
 
@@ -136,53 +161,99 @@ namespace XNative.Platform.Settings
             var defaults = AppSettings.CreateDefault();
             string json = Serialize(defaults);
 
-            await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            await WaitGateAsync(cancellationToken).ConfigureAwait(false);
             try
             {
+                ThrowIfDisposed();
+
                 await _storage.WriteTextAsync(StorageKey, json, cancellationToken).ConfigureAwait(false);
                 _cached = defaults;
             }
             finally
             {
-                _gate.Release();
+                ReleaseGate();
             }
         }
 
         /// <summary>
         /// Releases the synchronization resources held by the service.
+        /// Idempotent and thread-safe: only the first call disposes the
+        /// gate, and calling it while an operation is in flight is
+        /// safe — the operation completes with its real result or
+        /// observes the disposal, never a masked one (see the class
+        /// remarks).
         /// </summary>
         public void Dispose()
         {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        /// <summary>
-        /// Releases the unmanaged resources used by the service and,
-        /// when <paramref name="disposing"/> is <c>true</c>, its managed
-        /// resources.
-        /// </summary>
-        /// <param name="disposing"><c>true</c> to release both managed
-        /// and unmanaged resources; <c>false</c> to release only
-        /// unmanaged resources.</param>
-        private void Dispose(bool disposing)
-        {
-            if (_disposed)
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
             {
                 return;
             }
 
-            if (disposing)
-            {
-                _gate.Dispose();
-            }
+            _gate.Dispose();
+            GC.SuppressFinalize(this);
+        }
 
-            _disposed = true;
+        private async Task WaitGateAsync(CancellationToken cancellationToken)
+        {
+            ThrowIfDisposed();
+
+            try
+            {
+                await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (ObjectDisposedException)
+            {
+                // Lost the race with Dispose() while waiting for the
+                // gate: surface the disposal deliberately, naming the
+                // service rather than the semaphore.
+                throw new ObjectDisposedException(nameof(JsonSettingsService));
+            }
+        }
+
+        private void ThrowIfDisposed()
+        {
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                throw new ObjectDisposedException(nameof(JsonSettingsService));
+            }
+        }
+
+        private void ReleaseGate()
+        {
+            try
+            {
+                _gate.Release();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Dispose() ran while this operation was in flight and
+                // disposed the semaphore underneath it; there is
+                // nothing left to release into, and the operation's
+                // own result must not be masked by the disposal.
+            }
         }
 
         private async Task<AppSettings> LoadFromStorageAsync(CancellationToken cancellationToken)
         {
-            string? text = await _storage.ReadTextAsync(StorageKey, cancellationToken).ConfigureAwait(false);
+            string? text;
+            try
+            {
+                text = await _storage.ReadTextAsync(StorageKey, cancellationToken).ConfigureAwait(false);
+            }
+            catch (IOException)
+            {
+                // A storage read failure leaves the data just as
+                // unusable as corrupt content: degrade to the defaults
+                // instead of crashing startup (see the class remarks).
+                // Cancellation is neither exception type and still
+                // propagates.
+                return AppSettings.CreateDefault();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return AppSettings.CreateDefault();
+            }
 
             if (string.IsNullOrWhiteSpace(text))
             {
@@ -247,43 +318,23 @@ namespace XNative.Platform.Settings
                 return LogLevel.Information;
             }
 
-            // Unknown names fall back to the default for this field
-            // only. Enum.TryParse also accepts numeric strings such as
-            // "99", so the parsed value is checked for definedness as
-            // well; numeric names are not part of the stored format.
-            if (Enum.TryParse(name, ignoreCase: true, out LogLevel parsed)
-                && Enum.IsDefined(typeof(LogLevel), parsed)
-                && !IsNumericName(name!))
+            // Only an exact defined member name (case-insensitive) is
+            // accepted. Enum.TryParse is deliberately NOT used here: it
+            // also accepts numeric strings ("3") and comma-joined
+            // composites ("Debug, Information"), which it ORs into a
+            // different defined value — a corrupt stored level would
+            // silently become a real but wrong level instead of
+            // falling back for this field only, as documented.
+            string trimmed = name!.Trim();
+            foreach (LogLevel value in Enum.GetValues(typeof(LogLevel)))
             {
-                return parsed;
-            }
-
-            return LogLevel.Information;
-        }
-
-        private static bool IsNumericName(string name)
-        {
-            string trimmed = name.Trim();
-            if (trimmed.Length == 0)
-            {
-                return false;
-            }
-
-            int start = (trimmed[0] == '-' || trimmed[0] == '+') ? 1 : 0;
-            if (start >= trimmed.Length)
-            {
-                return false;
-            }
-
-            for (int i = start; i < trimmed.Length; i++)
-            {
-                if (trimmed[i] < '0' || trimmed[i] > '9')
+                if (string.Equals(value.ToString(), trimmed, StringComparison.OrdinalIgnoreCase))
                 {
-                    return false;
+                    return value;
                 }
             }
 
-            return true;
+            return LogLevel.Information;
         }
 
         private static string Serialize(AppSettings settings)

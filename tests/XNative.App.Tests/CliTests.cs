@@ -109,6 +109,19 @@ namespace XNative.App.Tests
             Assert.Equal(path, command.Argument);
         }
 
+        [Fact]
+        public void Parse_NullFirstArgument_IsError()
+        {
+            // Unreachable from a real command line, but Parse is a
+            // public surface: a null first element must be a usage
+            // error, not a NullReferenceException escaping the host's
+            // exit-code contract.
+            ParsedCommand command = CommandLine.Parse(new string[] { null! });
+
+            Assert.Equal(CommandKind.Error, command.Kind);
+            Assert.False(string.IsNullOrWhiteSpace(command.ErrorMessage));
+        }
+
         // ---- Dispatch / exit codes ------------------------------------
 
         [Fact]
@@ -165,6 +178,64 @@ namespace XNative.App.Tests
             Assert.Contains("Device information:", text);
             Assert.Contains("Connected gamepads:", text);
             Assert.Contains("Games found:", text);
+        }
+
+        [Fact]
+        public async Task RunAsync_NullFirstArgument_ReturnsUsageExitCode()
+        {
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = await Cli.RunAsync(new string[] { null! }, output, error);
+
+            Assert.Equal(Cli.ExitUsage, exitCode);
+            Assert.Contains("Usage:", error.ToString());
+        }
+
+        [Fact]
+        public async Task RunAsync_ScanNonexistentRoot_ReturnsFailure()
+        {
+            // An explicitly supplied root that does not exist is an
+            // error, not an empty library: the catalog's missing-root
+            // behaviour would otherwise report a false success for a
+            // typo'd path (inspect already fails for a missing file).
+            string missing = Path.Combine(_root, "no-such-dir");
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = await Cli.RunAsync(new[] { "scan", missing }, output, error);
+
+            Assert.Equal(Cli.ExitFailure, exitCode);
+            Assert.Contains("not found", error.ToString());
+            Assert.Contains(missing, error.ToString());
+        }
+
+        [Fact]
+        public async Task RunAsync_InfoNonexistentRoot_ReturnsFailure()
+        {
+            string missing = Path.Combine(_root, "no-such-dir");
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = await Cli.RunAsync(new[] { "info", missing }, output, error);
+
+            Assert.Equal(Cli.ExitFailure, exitCode);
+            Assert.Contains("not found", error.ToString());
+            Assert.Contains(missing, error.ToString());
+        }
+
+        [Fact]
+        public async Task RunAsync_LegacyNonexistentPath_ReturnsFailure()
+        {
+            // The legacy single-path form is an explicit root too.
+            string missing = Path.Combine(_root, "no-such-dir");
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = await Cli.RunAsync(new[] { missing }, output, error);
+
+            Assert.Equal(Cli.ExitFailure, exitCode);
+            Assert.Contains("not found", error.ToString());
         }
 
         // ---- scan ------------------------------------------------------

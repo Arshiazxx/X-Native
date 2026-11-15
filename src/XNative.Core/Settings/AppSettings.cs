@@ -33,6 +33,17 @@ namespace XNative.Core.Settings
         public const int DefaultScanMaxDepth = 3;
 
         /// <summary>
+        /// Maximum permitted number of entries in
+        /// <see cref="ExecutablePatterns"/>. The catalog issues one
+        /// directory enumeration per pattern per directory during a
+        /// scan, so the count is capped to keep a corrupt or hostile
+        /// settings file from turning every scan into thousands of
+        /// enumerations. 32 is far above any plausible hand-written
+        /// pattern list (the default is one pattern).
+        /// </summary>
+        public const int MaxExecutablePatterns = 32;
+
+        /// <summary>
         /// Root directory the game catalog scans. <c>null</c> (the
         /// default) means the platform default root is used and this
         /// setting does not override it.
@@ -53,10 +64,18 @@ namespace XNative.Core.Settings
         public int ScanMaxDepth { get; set; } = DefaultScanMaxDepth;
 
         /// <summary>
-        /// File patterns considered game executables during a catalog
-        /// scan. Defaults to a single <c>*.exe</c> pattern and must
-        /// never be <c>null</c> or empty in a valid instance (see
-        /// <see cref="Validate"/>).
+        /// File-name patterns considered game executables during a
+        /// catalog scan (for example <c>*.exe</c>). Defaults to a
+        /// single <c>*.exe</c> pattern. A valid instance has between
+        /// one and <see cref="MaxExecutablePatterns"/> patterns, none
+        /// of them blank and none containing a directory separator —
+        /// patterns name files, not paths (see <see cref="Validate"/>).
+        /// A bare <c>*</c> or <c>*.*</c> is accepted deliberately: it
+        /// costs the same single enumeration per directory as any
+        /// other pattern, and matching every file is a legitimate
+        /// choice when executables carry no consistent extension —
+        /// the catalog's PE inspection decides what is actually a
+        /// game.
         /// </summary>
         public string[] ExecutablePatterns { get; set; } = new[] { "*.exe" };
 
@@ -120,12 +139,32 @@ namespace XNative.Core.Settings
                     nameof(ExecutablePatterns));
             }
 
+            if (ExecutablePatterns.Length > MaxExecutablePatterns)
+            {
+                throw new ArgumentException(
+                    "ExecutablePatterns must contain at most "
+                    + MaxExecutablePatterns.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    + " patterns; each pattern costs one directory enumeration per "
+                    + "scanned directory, so an unbounded list makes scans arbitrarily "
+                    + "expensive.",
+                    nameof(ExecutablePatterns));
+            }
+
             for (int i = 0; i < ExecutablePatterns.Length; i++)
             {
                 if (string.IsNullOrWhiteSpace(ExecutablePatterns[i]))
                 {
                     throw new ArgumentException(
                         "ExecutablePatterns must not contain null, empty, or whitespace patterns.",
+                        nameof(ExecutablePatterns));
+                }
+
+                if (ExecutablePatterns[i].IndexOf('/') >= 0
+                    || ExecutablePatterns[i].IndexOf('\\') >= 0)
+                {
+                    throw new ArgumentException(
+                        "ExecutablePatterns entries are file-name patterns and must not "
+                        + "contain directory separators ('/' or '\\').",
                         nameof(ExecutablePatterns));
                 }
             }

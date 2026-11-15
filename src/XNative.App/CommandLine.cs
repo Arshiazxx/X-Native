@@ -96,6 +96,16 @@ namespace XNative.App
 
             string first = args[0];
 
+            if (first == null)
+            {
+                // Unreachable from a real command line (argv elements
+                // are never null), but Parse is a public surface:
+                // report it as a usage error instead of dereferencing
+                // the null and crashing the host outside its exit-code
+                // contract.
+                return Error("The first argument must not be null.");
+            }
+
             if (Is(first, "help") || Is(first, "--help") || Is(first, "-h"))
             {
                 return new ParsedCommand(CommandKind.Help, null, null);

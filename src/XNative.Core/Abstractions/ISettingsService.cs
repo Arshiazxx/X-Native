@@ -26,12 +26,17 @@ namespace XNative.Core.Abstractions
         /// The stored settings, or a new default
         /// <see cref="AppSettings"/> when nothing has been stored yet.
         /// This method never returns <c>null</c> and never throws
-        /// because stored data is corrupt: unreadable JSON, values that
-        /// fail <see cref="AppSettings.Validate"/>, or a stored format
-        /// version newer than the implementation understands all yield
-        /// the defaults instead, so corruption can never crash startup.
-        /// Corrupt stored data is left untouched (nothing is
-        /// overwritten) so it remains available for diagnostics.
+        /// because stored data is corrupt or cannot be read:
+        /// unreadable JSON, a storage read failure (for example an
+        /// I/O error from a permissions-broken storage folder), values
+        /// that fail <see cref="AppSettings.Validate"/>, or a stored
+        /// format version newer than the implementation understands
+        /// all yield the defaults instead, so corruption can never
+        /// crash startup. Corrupt stored data is left untouched
+        /// (nothing is overwritten) so it remains available for
+        /// diagnostics. Cancellation requested through
+        /// <paramref name="cancellationToken"/> still propagates as
+        /// <see cref="System.OperationCanceledException"/>.
         /// </returns>
         Task<AppSettings> GetAsync(CancellationToken cancellationToken = default);
 

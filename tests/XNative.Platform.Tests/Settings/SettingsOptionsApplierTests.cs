@@ -110,6 +110,66 @@ namespace XNative.Platform.Tests.Settings
         }
 
         [Fact]
+        public void ApplyToCatalog_InvalidSettings_ThrowsAndAppliesNothing()
+        {
+            // The applier is the boundary between persisted settings
+            // and the catalog: an out-of-range depth must fail loudly
+            // here instead of flowing into the catalog options.
+            var settings = new AppSettings
+            {
+                GamesRootPath = @"E:\Games",
+                ScanMaxDepth = 10000,
+                ExecutablePatterns = new[] { "*.exe" },
+            };
+            var options = new LocalGameCatalogOptions
+            {
+                RootPath = @"C:\PlatformDefault",
+                MaxDepth = 3,
+                ExecutablePatterns = new[] { "*.bin" },
+            };
+
+            var ex = Assert.Throws<ArgumentException>(
+                () => SettingsOptionsApplier.ApplyToCatalog(settings, options));
+
+            Assert.Equal("ScanMaxDepth", ex.ParamName);
+            Assert.Equal(@"C:\PlatformDefault", options.RootPath);
+            Assert.Equal(3, options.MaxDepth);
+            Assert.Equal(new[] { "*.bin" }, options.ExecutablePatterns);
+        }
+
+        [Fact]
+        public void ApplyToCatalog_NullPatterns_ThrowsInsteadOfPropagatingNull()
+        {
+            // Regression pin: the applier used to write the null array
+            // into the catalog options (via null!), and the catalog
+            // scan then crashed with a NullReferenceException.
+            var settings = new AppSettings { ExecutablePatterns = null! };
+            var options = new LocalGameCatalogOptions
+            {
+                ExecutablePatterns = new[] { "*.exe" },
+            };
+
+            var ex = Assert.Throws<ArgumentException>(
+                () => SettingsOptionsApplier.ApplyToCatalog(settings, options));
+
+            Assert.Equal("ExecutablePatterns", ex.ParamName);
+            Assert.Equal(new[] { "*.exe" }, options.ExecutablePatterns);
+        }
+
+        [Fact]
+        public void ApplyToLog_InvalidSettings_ThrowsAndAppliesNothing()
+        {
+            var settings = new AppSettings { LogMinimumLevel = (LogLevel)99 };
+            var options = new FileLogServiceOptions { MinimumLevel = LogLevel.Information };
+
+            var ex = Assert.Throws<ArgumentException>(
+                () => SettingsOptionsApplier.ApplyToLog(settings, options));
+
+            Assert.Equal("LogMinimumLevel", ex.ParamName);
+            Assert.Equal(LogLevel.Information, options.MinimumLevel);
+        }
+
+        [Fact]
         public void Applier_RejectsNullArguments()
         {
             var settings = new AppSettings();

@@ -159,6 +159,11 @@ namespace XNative.App
 
         private static async Task<int> RunInfoAsync(string? gamesRootPath, TextWriter output, TextWriter error)
         {
+            if (!CheckExplicitGamesRoot(gamesRootPath, error))
+            {
+                return ExitFailure;
+            }
+
             SettingsLoadResult load = await LoadSettingsAsync(error).ConfigureAwait(false);
             using ServiceProvider provider = CompositionRoot.Build(load.Settings, gamesRootPath);
 
@@ -213,6 +218,11 @@ namespace XNative.App
 
         private static async Task<int> RunScanAsync(string? gamesRootPath, TextWriter output, TextWriter error)
         {
+            if (!CheckExplicitGamesRoot(gamesRootPath, error))
+            {
+                return ExitFailure;
+            }
+
             SettingsLoadResult load = await LoadSettingsAsync(error).ConfigureAwait(false);
             using ServiceProvider provider = CompositionRoot.Build(load.Settings, gamesRootPath);
 
@@ -358,6 +368,32 @@ namespace XNative.App
             output.WriteLine($"  Scan max depth: {catalogOptions.MaxDepth}");
             output.WriteLine($"  Executable patterns: {string.Join(", ", catalogOptions.ExecutablePatterns)}");
             return ExitSuccess;
+        }
+
+        /// <summary>
+        /// Validates an explicitly supplied games root. The catalog
+        /// treats a missing root as an empty library by design, which
+        /// is right for the configured default — but for a path the
+        /// user typed on the command line it would report a false
+        /// success ("Games found: 0", exit 0) for what is almost
+        /// certainly a typo, inconsistent with <c>inspect</c> failing
+        /// for a missing file. An explicit root that does not exist is
+        /// therefore an error; the no-argument path (default or
+        /// settings-supplied root) keeps the empty-library behaviour.
+        /// </summary>
+        /// <returns>
+        /// <c>true</c> when the command may proceed: no explicit root
+        /// was supplied, or the supplied root exists.
+        /// </returns>
+        private static bool CheckExplicitGamesRoot(string? gamesRootPath, TextWriter error)
+        {
+            if (gamesRootPath == null || Directory.Exists(gamesRootPath))
+            {
+                return true;
+            }
+
+            error.WriteLine($"Error: Games root not found: {gamesRootPath}");
+            return false;
         }
 
         /// <summary>

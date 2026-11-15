@@ -96,6 +96,65 @@ namespace XNative.Core.Tests.Settings
             Assert.Equal("ExecutablePatterns", ex.ParamName);
         }
 
+        [Fact]
+        public void Validate_PatternCountAtCapPasses()
+        {
+            var patterns = new string[AppSettings.MaxExecutablePatterns];
+            for (int i = 0; i < patterns.Length; i++)
+            {
+                patterns[i] = "*.exe" + i.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+
+            var settings = new AppSettings { ExecutablePatterns = patterns };
+            settings.Validate();
+        }
+
+        [Fact]
+        public void Validate_TooManyPatternsThrowsNamingProperty()
+        {
+            // Each pattern costs one directory enumeration per scanned
+            // directory, so an unbounded list (a corrupt or hostile
+            // settings file could carry thousands) is a scan DoS.
+            var patterns = new string[AppSettings.MaxExecutablePatterns + 1];
+            for (int i = 0; i < patterns.Length; i++)
+            {
+                patterns[i] = "*.exe" + i.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+
+            var settings = new AppSettings { ExecutablePatterns = patterns };
+
+            var ex = Assert.Throws<ArgumentException>(() => settings.Validate());
+            Assert.Equal("ExecutablePatterns", ex.ParamName);
+        }
+
+        [Theory]
+        [InlineData("sub/*.exe")]
+        [InlineData("sub\\*.exe")]
+        [InlineData("/abs/*.exe")]
+        public void Validate_PatternWithDirectorySeparatorThrowsNamingProperty(string pattern)
+        {
+            // Patterns are file-name patterns, not paths.
+            var settings = new AppSettings { ExecutablePatterns = new[] { pattern } };
+
+            var ex = Assert.Throws<ArgumentException>(() => settings.Validate());
+            Assert.Equal("ExecutablePatterns", ex.ParamName);
+        }
+
+        [Theory]
+        [InlineData("*")]
+        [InlineData("*.*")]
+        public void Validate_BareWildcardPatternsPass(string pattern)
+        {
+            // Pinned decision: a match-everything pattern is NOT
+            // banned. It costs the same single enumeration per
+            // directory as "*.exe", and matching every file is a
+            // legitimate choice when executables carry no consistent
+            // extension — the catalog's PE inspection decides what is
+            // actually a game.
+            var settings = new AppSettings { ExecutablePatterns = new[] { pattern } };
+            settings.Validate();
+        }
+
         [Theory]
         [InlineData("")]
         [InlineData("   ")]

@@ -30,7 +30,12 @@ namespace XNative.App
         /// </returns>
         public static async Task<int> Main(string[] args)
         {
-            return await Cli.RunAsync(args, Console.Out, Console.Error).ConfigureAwait(false);
+            // A real command line never passes a null array, but a
+            // pathological host can: coalesce it to "no arguments" so
+            // the exit-code contract (see Cli) still holds instead of
+            // an ArgumentNullException escaping Main. Null elements
+            // are handled by CommandLine.Parse as a usage error.
+            return await Cli.RunAsync(args ?? Array.Empty<string>(), Console.Out, Console.Error).ConfigureAwait(false);
         }
     }
 }
