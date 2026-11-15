@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore X-Native.sln
+
+      # XNative.XboxHost is a legacy UWP project the .NET SDK cannot build.
+      # In X-Native.sln it is mapped to Debug|x64 / Release|x64 under the
+      # "Any CPU" solution configuration but has no Build.0 entry there, so
+      # `dotnet build` on the solution builds every managed project and
+      # skips the Xbox host. The host is built separately with MSBuild /
+      # Visual Studio — see docs/building.md and docs/xbox-host.md.
+      - name: Build
+        run: dotnet build X-Native.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test X-Native.sln -c Release --no-build
+
+  docs:
+    name: Docs link check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Lightweight sanity check: every docs/*.md file referenced from
+      # README.md must exist. Keeps the README's documentation links
+      # honest without pulling in a third-party link checker.
+      - name: Verify docs referenced from README exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for ref in $(grep -oE 'docs/[A-Za-z0-9._/-]+\.md' README.md | sort -u); do
+            if [ ! -f "$ref" ]; then
+              echo "::error::README.md references missing file: $ref"
+              missing=1
+            else
+              echo "OK: $ref"
+            fi
+          done
+          exit $missing

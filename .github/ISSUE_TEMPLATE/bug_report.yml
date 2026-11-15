@@ -1,0 +1,47 @@
+name: Bug report
+description: Report something in X-Native that behaves incorrectly.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please be precise about what you ran and what
+        happened — "it doesn't work" is hard to act on, a build log or a
+        startup-screen result is easy to act on.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, and what went wrong?
+      placeholder: Steps, expected behaviour, and actual behaviour.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Game catalog / launcher
+        - Xbox host (UWP app)
+        - Build / CI / tooling
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, .NET SDK version (`dotnet --version`), and — for host issues — Xbox model and Dev Mode OS version.
+      placeholder: e.g. Windows 11, SDK 8.0.423 / Xbox Series X, Dev Mode
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or output
+      description: Relevant build output, test output, or log lines. Please wrap long output in a collapsible block or attach a file.
+      render: shell
+    validations:
+      required: false

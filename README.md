@@ -6,6 +6,8 @@
 
 > **Status:** 🚧 Early Development
 
+[![CI](https://github.com/Arshiazxx/X-Native/actions/workflows/ci.yml/badge.svg)](https://github.com/Arshiazxx/X-Native/actions/workflows/ci.yml)
+
 ---
 
 # What is X-Native?
@@ -137,6 +139,21 @@ Expect:
 - Breaking changes
 
 Nothing should currently be considered stable.
+
+To be precise about what works today: X-Native can catalogue games from disk (including `game.json` manifests), analyse their executables, apply compatibility profiles, and present them in the launcher UI, and the Xbox host reports module health on its startup screen. **No PC game runs through X-Native yet** — the UWP sandbox forbids loading arbitrary executables, spawning processes, and JIT compilation, so execution is a research problem, not a shipped feature. See [docs/compatibility.md](docs/compatibility.md) for the full, honest picture.
+
+---
+
+# Building
+
+With the .NET SDK 8.0.x installed:
+
+```bash
+dotnet build X-Native.sln -c Release
+dotnet test X-Native.sln -c Release
+```
+
+That builds and tests the managed solution on Windows or Linux. Building and deploying the Xbox host needs Visual Studio 2022 and a console in Developer Mode. Full instructions: [docs/building.md](docs/building.md). The `game.json` manifest format is documented in [docs/game-manifest.md](docs/game-manifest.md).
 
 ---
 
