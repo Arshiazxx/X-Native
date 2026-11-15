@@ -55,7 +55,8 @@ guard job fails if a test project exists that is covered by neither the
 solution nor that list.
 
 For a quick smoke check without a console, the `XNative.App` console head
-has a diagnostic CLI (`info` / `scan` / `inspect` / `launch`) and the repo
+has a diagnostic CLI (`info` / `scan` / `inspect` / `launch` /
+`settings show` / `settings reset` / `help`) and the repo
 ships sample games and profiles under [examples/](examples/) — see
 "Smoke check: the console head" in [docs/building.md](docs/building.md).
 
@@ -84,9 +85,10 @@ document is [docs/architecture.md](docs/architecture.md).
   repo-wide, but documentation is the project's convention — follow the
   surrounding code.)
 - Formatting follows [.editorconfig](.editorconfig): 4-space indentation,
-  block-scoped namespaces, Allman braces. Style rules there are deliberately
-  kept at suggestion severity; formatting should never be the reason a build
-  fails.
+  block-scoped namespaces. Allman braces are the codebase's convention,
+  though .editorconfig does not encode them. Style rules there are
+  deliberately kept at suggestion severity; formatting should never be the
+  reason a build fails.
 - `LangVersion` is `latest` and nullable reference types are enabled. Write
   nullability honestly rather than suppressing it.
 
@@ -95,9 +97,10 @@ document is [docs/architecture.md](docs/architecture.md).
 1. Branch from `main` with a descriptive name, e.g. `fix/catalog-depth` or
    `feat/pe-inspector`.
 2. Keep the change scoped. Unrelated cleanups go in their own PR.
-3. Make sure `dotnet build` and the full test suite (every project under
-   `tests/`, not just the solution — see "Build and test" above) pass
-   locally.
+3. Make sure `dotnet build` and the full test suite pass locally.
+   `dotnet test X-Native.sln` runs the whole suite (see "Build and test"
+   above); running every project under `tests/` explicitly achieves the
+   same.
 4. Open a pull request and complete the PR template, including the testing
    and honesty checklists.
 5. If the change touches the Xbox host, say whether it was deployed to a
