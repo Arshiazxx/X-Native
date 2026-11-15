@@ -149,6 +149,40 @@ namespace XNative.Integration.Tests.ViewModels
         }
 
         [Fact]
+        public void Startup_Load_ReportsHeadSpecificModuleWhenTheHeadRegistersIt()
+        {
+            // Gate for the Xbox startup screen: the Xbox composition
+            // registers the six shared modules plus its own host module
+            // ("xnative.xboxhost", registered last by AddXboxHost), but
+            // the shared ExpectedModuleOrder does not contain it, so on
+            // base the host module is never reported — the startup
+            // screen of the Xbox head omits the very module that hosts
+            // it. The end state reports every registered module: shared
+            // modules in the expected order, then head-specific modules
+            // in registration order, all as loaded.
+            var modules = new IModuleDescriptor[]
+            {
+                new CoreModuleDescriptor(),
+                new StubModule("xnative.platform", "Platform"),
+                new StubModule("xnative.graphics", "Graphics"),
+                new StubModule("xnative.plugins", "Plugins"),
+                new StubModule("xnative.wine", "Wine"),
+                new StubModule("xnative.ui", "UI"),
+                new StubModule("xnative.xboxhost", "Xbox Host"),
+            };
+
+            var viewModel = new StartupViewModel(modules, new StubDeviceInfoService());
+            viewModel.Load();
+
+            Assert.Equal(7, viewModel.Modules.Count);
+            Assert.All(viewModel.Modules, module => Assert.True(module.IsLoaded));
+            ModuleStatusViewModel host = viewModel.Modules[6];
+            Assert.Equal("xnative.xboxhost", host.Id);
+            Assert.Equal("Xbox Host: Loaded \u2713", host.Line);
+            Assert.False(viewModel.IsBusy);
+        }
+
+        [Fact]
         public void Startup_NullArguments_ThrowArgumentNullException()
         {
             Assert.Throws<ArgumentNullException>(() => new StartupViewModel(null!, new StubDeviceInfoService()));
