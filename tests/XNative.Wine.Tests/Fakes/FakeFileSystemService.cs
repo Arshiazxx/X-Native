@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using XNative.Core.Abstractions;
@@ -41,6 +42,11 @@ namespace XNative.Wine.Tests.Fakes
         public Task<string> ReadAllTextAsync(string path, CancellationToken cancellationToken = default)
         {
             return Task.FromResult(string.Empty);
+        }
+
+        public Stream OpenRead(string path)
+        {
+            throw new NotSupportedException();
         }
     }
 }
