@@ -50,9 +50,14 @@ X-Native has to start from them.
 
 - Catalogues games from disk, including `game.json` manifests
   ([game-manifest.md](game-manifest.md)).
-- Analyses PE executables (headers, architecture, characteristics) with a
-  standalone inspector in `XNative.Platform`. The catalog does not call it
-  yet, so catalogued games still carry `Unknown` architecture.
+- Analyses PE executables (headers, architecture, characteristics) with
+  an inspector in `XNative.Platform`, and classifies every catalogued
+  executable with it: a valid PE image's architecture is recorded on the
+  game, while a file that is not a valid PE image (or cannot be read) is
+  catalogued with `Unknown` architecture rather than failing the scan.
+- Reads the Xbox gamepad through `Windows.Gaming.Input` and feeds it into
+  the platform's input service, so the launcher's input contracts reflect
+  the real controller — input is ready for a game the day one can run.
 - Stores compatibility profiles (`GameProfile`, `CompatibilityRating`)
   through `IGameProfileStore`, implemented by an in-memory store and a
   JSON-backed store in `XNative.Wine`. The default registration ships an

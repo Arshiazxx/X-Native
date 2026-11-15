@@ -85,7 +85,8 @@ Graphics      Audio       Community Plugins  Tools
 - [x] UWP host application
 - [x] Logging system
 - [x] Configuration system (options-based: catalog, logging, and storage are configured through options classes)
-- [ ] Plugin framework — contracts only so far (`IPlugin`, `IPluginCatalog`, `IPluginHost`); no plugin is discovered or loaded from disk yet
+- [x] Persisted settings (validated `AppSettings` over a JSON settings service) and a diagnostic console CLI in the development head
+- [x] Plugin framework — `PluginHost`, an in-memory `IPluginCatalog`, and a failure-isolating `PluginManager` are implemented; plugins are compiled-in and registered by a head, because the sandbox forbids loading assemblies from disk at runtime
 
 ---
 
@@ -97,13 +98,13 @@ Graphics      Audio       Community Plugins  Tools
 - [ ] Threading
 - [ ] DLL loading
 - [ ] File system virtualization
-- [x] PE-based executable analysis — a standalone inspector reads PE headers (architecture, subsystem, DLL/managed detection); the catalog does not use it yet
+- [x] PE-based executable analysis — an inspector reads PE headers (architecture, subsystem, DLL/managed detection), and the catalog classifies every executable it records with it
 
 ---
 
 ## Phase 3 — Graphics
 
-- [ ] Graphics abstraction — the backend contract is defined in the core; no backend is implemented yet
+- [ ] Graphics abstraction — the core contract, a backend registry, and a capability-based selector exist, with a null backend that renders nothing; no real rendering backend is implemented yet
 - [ ] DirectX translation research
 - [ ] Shader pipeline
 - [ ] Texture management
@@ -112,8 +113,8 @@ Graphics      Audio       Community Plugins  Tools
 
 ## Phase 4 — Input & Audio
 
-- [ ] Xbox controller support
-- [ ] Keyboard & mouse abstraction
+- [x] Xbox controller support — gamepad snapshot contracts in the core, a host-fed input service in the platform, and an Xbox host feed polling `Windows.Gaming.Input` at ~60 Hz
+- [ ] Keyboard & mouse abstraction — keyboard state contracts and service support exist; no host feeds keyboard input yet, and there is no mouse model
 - [ ] Audio backend
 - [ ] XAudio compatibility research
 
@@ -121,9 +122,9 @@ Graphics      Audio       Community Plugins  Tools
 
 ## Phase 5 — Game Support
 
-- [ ] Game profiles — the profile model and in-memory/JSON profile stores are implemented and resolved at launch; no curated profile data ships yet
+- [ ] Game profiles — the profile model and in-memory/JSON profile stores are implemented and resolved at launch; an examples pack ships three sample profiles, but no curated profile data ships yet
 - [ ] Compatibility database
-- [ ] Launcher UI — view models cover scanning, search/filter, sorting, and launching; no views ship yet
+- [ ] Launcher UI — view models cover scanning, search/filter, sorting, and launching, and the Xbox host ships a working (minimal) page over them; no polished or desktop views ship yet
 - [ ] Save management
 
 ---
@@ -141,7 +142,7 @@ Expect:
 
 Nothing should currently be considered stable.
 
-To be precise about what works today: X-Native can catalogue games from disk (including `game.json` manifests) and present them in the launcher UI, a standalone inspector can analyse a game's executable (PE headers, architecture, subsystem), and the Xbox host reports module health on its startup screen. Compatibility profiles are stored (in-memory and JSON-backed stores) and resolved on every launch attempt — a game whose profile rates it broken is refused with a structured `KnownBroken` failure — but the default registration ships an empty store and no backend exists behind the launch pipeline. **No PC game runs through X-Native yet** — the UWP sandbox forbids loading arbitrary executables, spawning processes, and JIT compilation, so execution is a research problem, not a shipped feature. See [docs/compatibility.md](docs/compatibility.md) for the full, honest picture.
+To be precise about what works today: X-Native can catalogue games from disk (including `game.json` manifests) and present them in the launcher UI, every catalogued executable is classified from its PE headers (architecture, subsystem, DLL/managed), the Xbox host reports module health on its startup screen and polls the real Xbox controller into the platform's input service, and a diagnostic console CLI (`info` / `scan` / `inspect` / `launch` / `settings`) exercises the same composition root on a PC, with persisted settings applied to the catalog and logging. Compatibility profiles are stored (in-memory and JSON-backed stores) and resolved on every launch attempt — a game whose profile rates it broken is refused with a structured `KnownBroken` failure — but the default registration ships an empty store and no backend exists behind the launch pipeline. **No PC game runs through X-Native yet** — the UWP sandbox forbids loading arbitrary executables, spawning processes, and JIT compilation, so execution is a research problem, not a shipped feature. See [docs/compatibility.md](docs/compatibility.md) for the full, honest picture.
 
 ---
 

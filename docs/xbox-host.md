@@ -44,21 +44,42 @@ the dependency still points inward.
 
 ## Services
 
-`Bootstrapper.AddXNative` registers the core descriptor, every module
-(`AddXNativePlatform()`, `AddXNativeGraphics()`, `AddXNativeWine()`,
-`AddXNativePlugins()`, `AddXNativeUI()`), and finally `AddXboxHost()`, which
-supplies the host's own descriptor and `UwpDeviceInfoService` as the
-`IDeviceInfoService`. The platform registrations include the file system,
-logging, storage, and process services and the local game catalog, so the
-host resolves the same service set as the console head — under UWP sandbox
-rules, which is why process creation and broad file access behave as
-described in [compatibility.md](compatibility.md).
+`Bootstrapper.AddXNative` registers the core descriptor, the modules
+(`AddXNativeGraphics()`, `AddXNativeWine()`, `AddXNativePlugins()`,
+`AddXNativeUI()`), the input registration (`AddXNativeInput()`), and
+finally `AddXboxHost()`, which supplies the host's own descriptor and
+`UwpDeviceInfoService` as the `IDeviceInfoService`.
+
+The platform module is composed differently from the console head, on
+purpose. The host calls `AddXNativePlatformCore()` — every platform
+service *except* `IProcessService` — and registers its own
+`UnavailableProcessService` in its place: the desktop implementation
+wraps `System.Diagnostics.Process`, which the UWP sandbox forbids, so
+the host's implementation states the limitation instead
+(`CanStartProcesses` is `false`, `StartAsync` throws
+`PlatformNotSupportedException`, `GetRunningProcess` returns `null`, and
+`StopAsync` reports `true` — nothing can ever have been started). The
+rest of the service set — file system, logging, storage, and the local
+game catalog — matches the console head, under UWP sandbox rules, which
+is why broad file access behaves as described in
+[compatibility.md](compatibility.md). One service the console head has
+that the host does not register yet is `ISettingsService`: the persisted
+settings are currently a console-head concern.
+
+`AddXNative` also accepts an optional games-root path that overrides the
+catalog's root. Games on Xbox live on removable or external storage
+rather than in the default documents folder; the seam exists so the host
+can pass that location once it knows it. `Bootstrapper.Start()` currently
+passes nothing, so the platform default applies.
 
 ## Startup sequence
 
 1. `App.OnLaunched` sets the view bounds mode and calls
-   `Bootstrapper.Start` (once — the report is cached in `App.Startup`),
-   creates the root frame if needed, and navigates to `MainPage`.
+   `Bootstrapper.Start`, caching the report in `App.Startup`. A
+   *successful* start is cached for the process lifetime; a failed start
+   is not — the next activation retries `Start` instead of reusing the
+   failure. It then creates the root frame if needed and navigates to
+   `MainPage`.
 2. `Bootstrapper.Start` registers every module, builds the container with
    `ValidateOnBuild` and `ValidateScopes`, then resolves every
    `IModuleDescriptor` and the device service so that a wiring mistake
@@ -70,8 +91,9 @@ described in [compatibility.md](compatibility.md).
    `App.OnLaunched`.
 4. `MainPage.OnNavigatedTo` checks the report. If startup failed (or never
    ran), the page shows the failure and stops. Otherwise it resolves
-   `StartupViewModel`, calls `Load`, resolves `GameLibraryViewModel`, and
-   updates the bindings.
+   `StartupViewModel`, calls `Load`, resolves `GameLibraryViewModel`,
+   starts the gamepad input feed (see below), and updates the bindings.
+   Navigating away stops the feed.
 5. `Bootstrapper.Reset()` disposes the service provider and clears the
    started state so `Start` can run again. It is test and support tooling
    only — the running application never calls it, because a UWP host starts
@@ -81,12 +103,41 @@ The startup screen lists the expected modules in a fixed order and marks each
 one as loaded or missing, so a module that fails to register is visible on the
 console screen.
 
+## Input
+
+`GamepadInputFeed` (in the host's `Input` folder) bridges the Xbox
+operating system's gamepad API into the platform's polling
+`IInputService` contract. It polls `Windows.Gaming.Input` on a
+`DispatcherTimer` at a 16 ms interval (~60 Hz) and writes every reading
+into the shared `ManualInputService` singleton as an immutable core
+`GamepadState`; the `GamepadAdded` / `GamepadRemoved` events only trigger
+an immediate extra poll, so the poll loop stays the single writer. A
+pad's player slot is its position in `Gamepad.Gamepads`, capped at
+`InputConstants.MaxPlayers` (4); slots with no pad are written
+`GamepadState.Disconnected` on every poll, so a removed pad never leaves
+a stale "connected" snapshot behind.
+
+Two mapping losses are deliberate and documented in the feed's own
+remarks: the UWP `Paddle1`–`Paddle4` buttons have no counterpart in the
+core `GamepadButtons` and are dropped, and the core `Guide` button is
+never set — the system reserves the Xbox button and readings never
+report it. The main page starts the feed when it is navigated to and
+stops it (resetting every slot to disconnected) when navigated away
+from.
+
+Like the rest of the host, the feed is written against the UAP
+10.0.19041 surface but has not been verified by a compiler — the legacy
+UWP project cannot be built outside Windows (see the manifest caveat
+under Capabilities).
+
 ## Launching from the main page
 
 The games list is a selectable `ListView` bound to the game library. The
 **Launch Selected Game** button takes the selected game, looks its
 `GameInfo` up in `IGameCatalog` by executable path, and calls
-`IGameRunner.LaunchAsync`. The outcome is shown next to the button;
+`IGameRunner.LaunchAsync` — passing the game's manifest launch arguments
+through `LaunchOptions` when it has any, mirroring the launcher view
+model's launch path instead of silently dropping them. The outcome is shown next to the button;
 failures and exceptions are also mirrored into the page's error element, so
 the handler cannot crash the page. Today the registered runner runs the
 launch pipeline — validation and profile resolution — but there is no

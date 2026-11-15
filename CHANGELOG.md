@@ -169,6 +169,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ObjectDisposedException` out of `RefreshAsync`; disposal is now
   idempotent and thread-safe, and a refresh that loses the race returns
   quietly without corrupting the published snapshot.
+- The catalog's default games root was the user's documents folder
+  unconditionally; on hosts where that folder does not resolve (for
+  example a Linux shell without XDG user directories) it came back
+  empty and the catalog silently scanned nothing. It now falls back to
+  `LocalApplicationData/XNative/Games`, alongside the storage and log
+  roots.
 - `PeFileInspector.Inspect(Stream)` read the entire stream into memory
   (twice) with no bound; it now reads at most a 1 MiB header window —
   far more than any PE header needs — and never closes the caller's

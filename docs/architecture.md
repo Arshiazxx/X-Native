@@ -50,16 +50,18 @@ table says so — a contract is not an implementation.
 | Interface | Members (summary) | Implemented by |
 | --- | --- | --- |
 | `ILogService` | `MinimumLevel`; `Log(level, message, exception?)`; `IsEnabled(level)` | `FileLogService` (default) and `NullLogService`, in `XNative.Platform` |
-| `IFileSystemService` | `DirectoryExists`; `FileExists`; `GetFiles`; `GetDirectories`; `ReadAllTextAsync` | `SystemFileSystemService`, in `XNative.Platform` |
+| `IFileSystemService` | `DirectoryExists`; `FileExists`; `GetFiles`; `GetDirectories`; `OpenRead`; `ReadAllTextAsync` | `SystemFileSystemService`, in `XNative.Platform` |
 | `IStorageService` | `ReadTextAsync`; `WriteTextAsync`; `ExistsAsync`; `DeleteAsync` | `FileStorageService`, in `XNative.Platform` |
-| `IProcessService` | `CanStartProcesses`; `StartAsync`; `GetRunningProcess`; `StopAsync` | `SystemProcessService`, in `XNative.Platform` |
+| `IProcessService` | `CanStartProcesses`; `StartAsync`; `GetRunningProcess`; `StopAsync` | `SystemProcessService`, in `XNative.Platform`; `UnavailableProcessService`, in `XNative.XboxHost` (honest sandbox implementation: `CanStartProcesses` is `false`) |
 | `IGameCatalog` | `GetGamesAsync`; `FindByIdAsync`; `FindByExecutablePathAsync`; `RefreshAsync` | `LocalGameCatalog`, in `XNative.Platform` |
 | `IGameRunner` | `LaunchAsync(game)`; `LaunchAsync(game, LaunchOptions)` | `CompatibilityGameRunner`, in `XNative.Wine` — runs the shared launch pipeline (validation, profile resolution, structured failure); it does not execute games (see below) |
 | `IDeviceInfoService` | `GetDeviceInfo()` | `UwpDeviceInfoService`, in `XNative.XboxHost`; `DesktopDeviceInfoService`, in `XNative.App` |
 | `IGameProfileStore` | `GetProfiles()`; `FindForGame(game)` | `InMemoryGameProfileStore` and `JsonGameProfileStore`, in `XNative.Wine` |
 | `ICompatibilityLayer` | `Id`; `DisplayName`; `CanRun(game)`; `RunAsync(game, options)` | `WineCompatibilityLayer`, in `XNative.Wine` — predicts from the profile store; `RunAsync` delegates to the same launch pipeline as the runner |
-| `IGraphicsBackend` | `Id`; `DisplayName`; `SupportedApis`; `IsInitialized`; `Initialize()`; `Shutdown()` | Contract only — intended for `XNative.Graphics`; no implementation yet |
-| `IPluginHost` | `Log`; `PluginDirectory` | Contract only — intended for `XNative.Plugins`; no implementation yet |
+| `IInputService` | `GetGamepadState(playerIndex)`; `GetKeyboardState()`; `ConnectedGamepadCount` | `ManualInputService` (thread-safe, fed by the host) and `NullInputService`, in `XNative.Platform` |
+| `ISettingsService` | `GetAsync`; `SaveAsync`; `ResetAsync` | `JsonSettingsService`, in `XNative.Platform` |
+| `IGraphicsBackend` | `Id`; `DisplayName`; `SupportedApis`; `IsInitialized`; `Initialize()`; `Shutdown()` | `NullGraphicsBackend`, in `XNative.Graphics` — a lifecycle-complete backend that renders nothing; no real rendering backend exists yet |
+| `IPluginHost` | `Log`; `PluginDirectory` | `PluginHost`, in `XNative.Plugins` |
 | `IModuleDescriptor` | `Id`; `DisplayName` | One descriptor class per module (for example `CoreModuleDescriptor`, `PlatformModuleDescriptor`) |
 
 `IDeviceInfoService` returns a `DeviceInfo`, an immutable model declared in
@@ -89,6 +91,12 @@ The core's model types are grouped by namespace:
   the models used by `IProcessService`.
 - `XNative.Core.Graphics` — `GraphicsApi`, the flags enum of source APIs a
   graphics backend can translate.
+- `XNative.Core.Input` — `GamepadState` and `KeyboardState` (immutable,
+  validated snapshots), the `GamepadButtons` flags and `KeyboardKey` enum,
+  and `InputConstants` (`MaxPlayers` = 4 player slots).
+- `XNative.Core.Settings` — `AppSettings`, the persisted settings model
+  (games root, minimum log level, scan depth, executable patterns) with a
+  `Validate()` that rejects out-of-range values.
 
 Services are configured through the options pattern: modules register
 defaults with `Configure<TOptions>(...)` and heads may override them. The
@@ -104,25 +112,69 @@ the codebase.
 It implements the platform services registered by `AddXNativePlatform()`:
 `SystemFileSystemService`, `FileLogService` (plus the discarding
 `NullLogService`), `FileStorageService` (atomic writes, keys confined to its
-storage root), and `SystemProcessService`, together with `LocalGameCatalog`
-(see [game-manifest.md](game-manifest.md) for what it reads).
+storage root), and `SystemProcessService` (which prunes processes that have
+exited so their handles do not accumulate), together with
+`LocalGameCatalog` (see [game-manifest.md](game-manifest.md) for what it
+reads). A second registration, `AddXNativePlatformCore()`, registers the
+same services *except* `IProcessService`, for hosts whose sandbox forbids
+starting processes; those hosts supply their own honest implementation
+(see the Xbox host below). The catalog's default root is the user's
+documents folder, falling back to `LocalApplicationData/XNative/Games`
+when the platform reports no documents folder (an empty root would
+silently catalogue nothing). Disposing the catalog while a refresh is in
+flight is safe: disposal is idempotent and the losing refresh returns
+quietly instead of throwing.
 
 It also contains the PE inspector in `XNative.Platform.Executables`:
 `PeFileInspector` parses the headers of a Windows executable (from a byte
 array or a stream) into a `PeInfo` — validity, `ProcessorArchitecture`,
 whether the file is a DLL, whether it is managed (.NET), its subsystem
 (`PeSubsystem`), and the raw machine/subsystem values — without ever
-throwing on malformed input. `ExecutableClassifier` maps a `PeInfo` to an
-`ExecutableType` and architecture. The inspector is a standalone component:
-the game catalog does not call it yet, and catalogued games are recorded as
-`ExecutableType.WindowsExecutable` with `ProcessorArchitecture.Unknown`.
+throwing on malformed input; the stream overload reads at most a 1 MiB
+header window and never closes the caller's stream.
+`ExecutableClassifier` maps a `PeInfo` to an `ExecutableType` and
+architecture. The catalog classifies every executable it records, on both
+the manifest and the bare-scan path: it reads at most the first 64 KiB
+through `IFileSystemService.OpenRead`, and a valid PE image populates the
+game's `Architecture` and executable type. A file that is not a valid PE
+image, or cannot be read at all, is still catalogued with the historical
+defaults (`ExecutableType.WindowsExecutable`,
+`ProcessorArchitecture.Unknown`) — classification never fails a scan.
+
+Input lives in `XNative.Platform.Input`, registered separately by
+`AddXNativeInput()` so heads opt in explicitly. `ManualInputService` is
+the functional `IInputService`: a thread-safe store of the latest
+gamepad/keyboard snapshots that a host feeds (on Xbox, from
+`Windows.Gaming.Input`; see [xbox-host.md](xbox-host.md)). It starts with
+every slot disconnected, exactly like `NullInputService`, which remains
+available for heads that want "no input, ever" stated explicitly.
+`DeadZone` and `GamepadStateMerger` are pure helpers over the core
+snapshots.
+
+Persisted settings live in `XNative.Platform.Settings`, registered by
+`AddXNativeSettings()`. `JsonSettingsService` stores `AppSettings` as
+versioned JSON (storage key `settings.json`, format version 1) over
+`IStorageService`. Loading never throws on bad data: missing, unreadable,
+or invalid stored values — and any stored format version other than the
+one this build writes, including a newer one — yield the defaults, and
+corrupt data is left untouched for diagnostics. `SettingsOptionsApplier`
+copies a loaded `AppSettings` onto the catalog and log options objects
+(only a non-null `GamesRootPath` overrides the catalog root).
 
 ### XNative.Graphics
 
-Boundary for a future rendering backend. It currently contains only its
-module registration and descriptor. The `IGraphicsBackend` contract and the
-`GraphicsApi` flags exist in the core, but no backend implements them and
-no graphics translation takes place.
+The graphics module's infrastructure exists; a real rendering backend does
+not. `AddXNativeGraphics()` registers the module descriptor, a
+`GraphicsBackendRegistry` (backends keyed by `Id`, compared
+case-insensitively; duplicate or empty ids are rejected with
+`ArgumentException`), a `GraphicsBackendSelector`, and `NullGraphicsBackend`
+as the resolvable `IGraphicsBackend`. The selector picks, among the backends
+whose `SupportedApis` cover every required API, the one adding the fewest
+extra APIs (ties break by registration order), and returns `null` when none
+qualifies. `NullGraphicsBackend` (id `null`) is lifecycle-complete but
+supports `GraphicsApi.None` only and renders nothing, so it is selected
+only when no API is required. No backend translates or renders anything
+yet.
 
 ### XNative.Wine
 
@@ -172,15 +224,33 @@ The profile stores live in `XNative.Wine.Profiles`:
   `{ "id", "executableName", "rating", "notes"?, "recommendedArguments"? }`
   objects (rating is a `CompatibilityRating` member name, matched
   case-insensitively). A malformed database is loud, never silently empty:
-  invalid JSON, a missing required field, or an unknown rating throws
-  `InvalidDataException` at load time.
+  invalid JSON, a missing required field, an unknown rating, an empty or
+  whitespace `id`, or a duplicated `id` throws `InvalidDataException` at
+  load time.
+
+Both stores reject duplicate profile IDs (compared case-insensitively):
+the in-memory store's constructor throws `ArgumentException`. A duplicate
+would otherwise silently shadow the earlier profile, because profile
+lookup resolves by ID.
 
 ### XNative.Plugins
 
 Defines the plugin contracts: `IPlugin` and `IPluginCatalog`, which live in
-this project rather than in the core, plus the core's `IPluginHost`. The
-module registers only its descriptor. There is no catalog implementation,
-no plugin host implementation, and no loading of plugins from disk.
+this project rather than in the core, plus the core's `IPluginHost`.
+`AddXNativePlugins()` registers the module descriptor, an empty
+`InMemoryPluginCatalog` (a head that ships plugins registers its own
+catalog or plugin instances instead), a `PluginHost` (the registered
+`ILogService` plus the application base directory as the plugin
+directory), and a `PluginManager`. The manager initialises each catalog
+plugin against the host with failure isolation — one plugin throwing is
+logged, recorded as `Failed` in the returned
+`PluginInitializationReport`, and never stops the others — and attempts
+each plugin ID at most once per manager instance.
+
+Plugins are in-process only, by design: the UWP sandbox blocks loading
+arbitrary assemblies at runtime, so there is no folder scanning and no
+dynamic assembly loading. A plugin is a compiled-in `IPlugin`
+implementation that a head places in the catalog.
 
 ### XNative.UI
 
@@ -219,27 +289,53 @@ label derived from the executable type.
 
 The development composition root and a runnable console head: it targets
 `net8.0` with `OutputType` `Exe` (verified in `XNative.App.csproj`).
-`CompositionRoot.AddXNative` registers every module plus
-`DesktopDeviceInfoService`; `Build(gamesRootPath)` additionally points the
-game catalog at a caller-supplied folder. Running it —
+`CompositionRoot.AddXNative` registers every module — including the
+settings and input registrations — plus `DesktopDeviceInfoService`;
+`Build(gamesRootPath)` additionally points the game catalog at a
+caller-supplied folder.
 
-```bash
-dotnet run --project src/XNative.App -- <folder-with-games>
-```
+On top of the composition root sits a small diagnostic CLI (`Cli` /
+`CommandLine`), which is what `Program.Main` runs:
 
-— prints the resolved modules and the device description, scans the folder
-with the catalog, and prints the games found. It exits `0` on success; any
-failure is reported as `Error: <message>` on standard error with exit code
-`1`. This makes the whole wiring verifiable from the command line, outside
-the Xbox environment.
+| Command | What it does |
+| --- | --- |
+| `info [path]` | Prints the resolved modules, the device description, the connected-gamepad count, and the games in the games root. The default when no command is given; a single bare path argument is still accepted as the legacy form of `info <path>`. |
+| `scan [path]` | Lists what a catalog scan of the games root finds, with architecture, executable type, and path. |
+| `inspect <exe>` | Prints one executable's PE header information (validity, architecture, DLL, managed, subsystem, section count). |
+| `launch <id-or-path>` | Resolves a game by catalog id or executable path (an existing file outside the catalog becomes an ad-hoc entry, classified on the spot) and sends it through `IGameRunner`, printing the structured result. |
+| `settings show` | Prints the effective settings read back from the composed options, including which source supplied the games root. |
+| `settings reset` | Discards the persisted settings and restores the defaults (persisted, so the reset survives a restart). |
+| `help` | Prints the usage text. |
+
+Exit codes are `0` for success, `1` for failure (missing file, invalid
+PE, failed launch, unexpected error), and `2` for a usage error.
+
+Every command that builds the composition loads the persisted settings
+first. Because options are baked into the platform singletons at first
+resolution, loading happens in a throwaway pre-composition
+(`SettingsBootstrap`): it resolves only `ISettingsService`, loads, and is
+disposed; the real composition is then built from the loaded settings via
+`Build(AppSettings, string)`, which applies them onto the catalog and log
+options. The games-root precedence, highest first, is: an explicit
+command-line path, then the persisted `AppSettings.GamesRootPath`, then
+the platform module default. A settings load that itself fails never
+stops the application: the defaults are substituted and a one-line
+warning is printed to standard error. This makes the whole wiring —
+settings included — verifiable from the command line, outside the Xbox
+environment.
 
 ### XNative.XboxHost
 
 The UWP application head for Xbox Developer Mode. It owns the Windows Runtime
 implementations and its own composition root, `Bootstrapper`, which calls the
-same `AddXNativeX()` extensions as `XNative.App`. It does not reference
-`XNative.App`, since that is an executable and depending on it would point a
-dependency outward. See [xbox-host.md](xbox-host.md).
+same `AddXNativeX()` extensions as `XNative.App` — with one deliberate
+difference: it composes `AddXNativePlatformCore()` (no desktop process
+service) and registers its own `UnavailableProcessService`, because the
+sandbox forbids starting processes. It does not reference `XNative.App`,
+since that is an executable and depending on it would point a dependency
+outward. The host also owns the `GamepadInputFeed`, which polls
+`Windows.Gaming.Input` into the shared `ManualInputService`. See
+[xbox-host.md](xbox-host.md).
 
 ## Module registration
 
@@ -258,6 +354,10 @@ services
 The core cannot register itself, because it has no dependency on a container,
 so each composition root registers `CoreModuleDescriptor` explicitly. The Xbox
 host adds `AddXboxHost()` on top for its Windows Runtime implementations.
+Two registrations live inside the platform project but are opt-in rather
+than part of `AddXNativePlatform()`: `AddXNativeInput()` and
+`AddXNativeSettings()`, called explicitly by the heads that want them (the
+console head calls both; the Xbox host calls `AddXNativeInput()`).
 
 Adding a module means adding a project, an extension method and one line in
 each composition root. Nothing else in the codebase changes.
@@ -285,13 +385,31 @@ whole solution, while MSBuild builds the host under `x64` or `x86`.
   (including the v2 `arguments` and `icon` fields), stable game IDs, and a
   path-traversal guard on manifest paths.
 - PE inspection: header parsing, architecture/subsystem classification, and
-  DLL/managed detection, with tests built on synthetic PE files.
+  DLL/managed detection, with tests built on synthetic PE files — and
+  catalog integration: every catalogued executable is classified from its
+  first 64 KiB, so a valid PE image's architecture is recorded on the
+  game.
 - The launch pipeline: executable-type and existence validation, profile
   resolution, and structured failure reasons — shared by the game runner
   and the Wine compatibility layer.
 - Compatibility profile stores: in-memory and JSON-backed
   implementations of `IGameProfileStore`, matched to games by executable
-  file name and consulted on every launch.
+  file name and consulted on every launch; both reject duplicate profile
+  IDs loudly instead of shadowing.
+- Input: gamepad/keyboard snapshot contracts in the core, a thread-safe
+  manually-fed input service (plus a null implementation) in the
+  platform, and an Xbox host feed polling `Windows.Gaming.Input`.
+- Persisted settings: `AppSettings` with validation, a JSON-backed
+  settings service that falls back to defaults on corrupt data, an
+  options applier, and console-head wiring (`settings show` / `settings
+  reset`, CLI > settings > platform-default precedence).
+- Graphics and plugin infrastructure: a backend registry and
+  capability-based selector with a null backend, and a plugin host,
+  in-memory catalog, and failure-isolating plugin manager — all
+  in-process; no rendering backend and no disk-loaded plugins.
+- The diagnostic console CLI: `info`, `scan`, `inspect`, `launch`, and
+  `settings` commands with 0/1/2 exit codes over the same composition
+  root the Xbox head uses.
 - The launcher view models: scanning, search/filter, name sorting,
   selection preserved across rescans, and launch through `IGameRunner`
   with the outcome surfaced as status text.
@@ -308,11 +426,17 @@ whole solution, while MSBuild builds the host under `x64` or `x86`.
   compilation a classic layer needs — see
   [compatibility.md](compatibility.md).
 - Wine itself, and any `Box86`/`Box64`-style emulation.
-- Graphics translation: no `IGraphicsBackend` implementation exists.
+- Graphics translation: the registry, selector, and a null backend exist,
+  but no backend implements `IGraphicsBackend` to actually render or
+  translate anything.
 - A curated compatibility database: the profile stores exist and profiles
   are resolved on every launch, but the default registration ships an
-  empty store and no profile data ships with the project yet.
-- Plugin loading from disk: no `IPluginCatalog` or `IPluginHost`
-  implementation exists.
-- Catalog integration of the PE inspector: catalogued executables are not
-  yet inspected, so their recorded architecture stays `Unknown`.
+  empty store; the only profile data in the repo is the three-profile
+  sample database in `examples/`.
+- Plugin discovery and loading from disk: the catalog and host are
+  implemented, but plugins are compiled-in implementations a head
+  registers — the UWP sandbox forbids loading arbitrary assemblies at
+  runtime, so no folder is ever scanned for plugin files.
+- Settings wiring in the Xbox host: the console head loads and applies
+  the persisted settings; the Xbox bootstrapper does not register
+  `ISettingsService` yet.
