@@ -119,7 +119,38 @@ namespace XNative.UI.Tests.Mvvm
 
             bool completed = await Task.WhenAny(gate.Task, Task.Delay(5000)) == gate.Task;
             Assert.True(completed);
-            Assert.False(command.IsRunning);
+
+            // The gate is set from inside the delegate, before the
+            // delegate's task completes and ExecuteAsync's finally block
+            // resets IsRunning. Gate completion therefore has no
+            // happens-before edge to that reset, and ICommand.Execute is
+            // async void, so there is no execution task to await either.
+            // Asserting IsRunning == false immediately here is racy (it
+            // flaked once in a full-suite run); poll, bounded, instead.
+            Assert.True(
+                await WaitUntilAsync(() => !command.IsRunning),
+                "IsRunning did not reset after the delegate completed.");
+        }
+
+        /// <summary>
+        /// Polls <paramref name="condition"/> every 10 ms for up to
+        /// 5 seconds, returning as soon as it holds. Used where the code
+        /// under test offers no task or event that orders the observed
+        /// state (notably async-void ICommand execution).
+        /// </summary>
+        private static async Task<bool> WaitUntilAsync(Func<bool> condition)
+        {
+            for (int attempt = 0; attempt < 500; attempt++)
+            {
+                if (condition())
+                {
+                    return true;
+                }
+
+                await Task.Delay(10);
+            }
+
+            return condition();
         }
     }
 }
